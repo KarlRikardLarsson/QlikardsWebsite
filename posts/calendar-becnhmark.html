@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calendar Scripts — Which One Is Fastest? — Qlikard</title>
+  <meta name="post-id" content="calendar-script-benchmark" />
+  <meta name="post-category" content="scripts" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🟢</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+  <style>
+    .results-table { width: 100%; border-collapse: collapse; margin: 1.5rem 0; font-size: 0.9rem; }
+    .results-table th { text-align: left; padding: 0.6rem 0.75rem; border-bottom: 2px solid #e0e0e0; font-weight: 600; }
+    .results-table td { padding: 0.6rem 0.75rem; border-bottom: 1px solid #f0f0f0; }
+    .good  { color: #1a7a4a; font-weight: 600; }
+    .ok    { color: #b07d1a; font-weight: 600; }
+    .bad   { color: #c0392b; font-weight: 600; }
+    .bar-chart { margin: 2rem 0; }
+    .bar-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem; font-size: 0.85rem; }
+    .bar-label { width: 160px; flex-shrink: 0; color: #555; }
+    .bar-track { flex: 1; background: #f0f0f0; border-radius: 3px; height: 28px; position: relative; }
+    .bar-fill { height: 100%; border-radius: 3px; display: flex; align-items: center; padding-left: 10px; font-size: 0.8rem; font-weight: 600; color: #fff; transition: width 0.4s ease; }
+    .bar-fill.fast   { background: #1a7a4a; }
+    .bar-fill.medium { background: #1a7a4a; }
+    .bar-fill.slow   { background: #2a7da8; }
+    .bar-zero { padding-left: 8px; font-size: 0.8rem; font-weight: 600; color: #1a7a4a; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag scripts">Scripts</span>
+    <h1 class="post-title">Calendar Scripts — Which One Is Fastest?</h1>
+    <div class="post-meta-bar">
+      <span>April 7, 2026</span>
+      <span>·</span>
+      <span>6 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      There are several ways to build a master calendar in Qlik. Most developers pick one early on and
+      stick with it — but they're not all equal. Inspired by
+      <a href="https://qlikviewcookbook.com/2015/05/better-calendar-scripts/" target="_blank">Rob Wunderlich's calendar scripts</a>,
+      I ran a benchmark across three common approaches to see how much the choice actually matters.
+    </p>
+
+    <h2>The three methods</h2>
+
+    <p>Each method generates the same output — a <code>DIM_Calendar</code> with date, year, month, day,
+    week, weekday, quarter and a YTD flag — but they differ in how they find the min/max date range.</p>
+
+    <h3>1. Min/max via RESIDENT</h3>
+    <p>
+      The most explicit approach. A temp table aggregates <code>Min()</code> and <code>Max()</code>
+      from the fact table, stores the result in variables, then uses those to drive an
+      <code>AUTOGENERATE</code> date sequence.
+    </p>
+
+<pre><code>TMP1_Calendar:
+LOAD
+    Min(TransactionDate) as MinDate,
+    Max(TransactionDate) as MaxDate
+RESIDENT Transactions;
+
+LET vMinDate = Peek('MinDate', 0, 'TMP1_Calendar');
+LET vMaxDate = Peek('MaxDate', 0, 'TMP1_Calendar');
+DROP TABLE TMP1_Calendar;
+
+TMP2_Calendar:
+LOAD
+    Date($(vMinDate) + RowNo() - 1) as TransactionDate
+AUTOGENERATE $(vMaxDate) - $(vMinDate) + 1;
+
+DIM_Calendar:
+LOAD
+    TransactionDate,
+    Year(TransactionDate)                      as Year,
+    Month(TransactionDate)                     as Month,
+    Day(TransactionDate)                       as Day,
+    Week(TransactionDate)                      as Week,
+    WeekDay(TransactionDate)                   as WeekDay,
+    'Q' & Ceil(Month(TransactionDate) / 3)     as Quarter,
+    YearToDate(TransactionDate)                as YTDFlag
+RESIDENT TMP2_Calendar;
+
+DROP TABLE TMP2_Calendar;</code></pre>
+
+    <h3>2. FieldValueCount + WHILE loop</h3>
+    <p>
+      Skips the RESIDENT aggregation entirely. Uses <code>FieldValue()</code> and
+      <code>FieldValueCount()</code> to read min/max directly from Qlik's internal symbol table,
+      then generates the date range with a <code>WHILE</code> loop using <code>IterNo()</code>.
+      The calendar fields are computed in a preceding load on top.
+    </p>
+
+<pre><code>DIM_Calendar:
+LOAD
+    TempDate                               as TransactionDate,
+    Year(TempDate)                         as Year,
+    Month(TempDate)                        as Month,
+    Day(TempDate)                          as Day,
+    Week(TempDate)                         as Week,
+    WeekDay(TempDate)                      as WeekDay,
+    'Q' & Ceil(Month(TempDate) / 3)        as Quarter,
+    YearToDate(TempDate)                   as YTDFlag;
+LOAD
+    date(mindate + IterNo()) AS TempDate,
+    maxdate
+WHILE mindate + IterNo() <= maxdate;
+LOAD
+    min(FieldValue('TransactionDate', recno())) - 1 as mindate,
+    max(FieldValue('TransactionDate', recno()))     as maxdate
+AUTOGENERATE FieldValueCount('TransactionDate');</code></pre>
+
+    <h3>3. FieldValue + AUTOGENERATE (WHILE-less)</h3>
+    <p>
+      A cleaner variant of method 2. Reads min/max via <code>FieldValue()</code> into a temp table,
+      stores them as variables, then uses a straightforward <code>AUTOGENERATE</code> — no WHILE loop.
+    </p>
+
+<pre><code>Calendar_MinMax:
+LOAD
+    Num(Min(_DateScan)) AS MinDate,
+    Num(Max(_DateScan)) AS MaxDate
+;
+LOAD
+    FieldValue('TransactionDate', IterNo()) AS _DateScan
+AUTOGENERATE 1
+WHILE NOT IsNull(FieldValue('TransactionDate', IterNo()));
+
+LET vCal_MinDate = Peek('MinDate', 0, 'Calendar_MinMax');
+LET vCal_MaxDate = Peek('MaxDate', 0, 'Calendar_MinMax');
+DROP TABLE Calendar_MinMax;
+
+DIM_Calendar:
+LOAD
+    TempDate                               as TransactionDate,
+    Year(TempDate)                         as Year,
+    Month(TempDate)                        as Month,
+    Day(TempDate)                          as Day,
+    Week(TempDate)                         as Week,
+    WeekDay(TempDate)                      as WeekDay,
+    'Q' & Ceil(Month(TempDate) / 3)        as Quarter,
+    YearToDate(TempDate)                   as YTDFlag;
+LOAD
+    Date($(vCal_MinDate) + RecNo() - 1) AS TempDate
+AUTOGENERATE ($(vCal_MaxDate) - $(vCal_MinDate) + 1);</code></pre>
+
+    <h2>The test setup</h2>
+
+    <p>
+      Each method was run 5 times against the same dataset using a logging subroutine that captures
+      start and end timestamps. Average execution time was measured per method.
+      The dataset was generated with <code>AUTOGENERATE</code> and includes a
+      <code>TransactionDate</code> field spanning 5 years back from today with 10 000 000 rows.
+    </p>
+
+<pre><code>SUB sLog(vMethod, vStart, vEnd)
+    LOG_Results:
+    LOAD
+        '$(vMethod)'                                     as Method,
+        Time('$(vEnd)') - Time('$(vStart)')              as Time
+    AUTOGENERATE 1;
+END SUB</code></pre>
+
+    <h2>Results</h2>
+
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Method</th>
+          <th>Avg execution time</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>AUTOGENERATE (FieldValue, no WHILE)</td>
+          <td class="good">~0:00:00</td>
+        </tr>
+        <tr>
+          <td>FieldValueCount + WHILE loop</td>
+          <td class="good">~0:00:00</td>
+        </tr>
+        <tr>
+          <td>Min/max via RESIDENT</td>
+          <td class="bad">0:00:14</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="bar-chart">
+      <div class="bar-row">
+        <div class="bar-label">AUTOGENERATE</div>
+        <div class="bar-track">
+          <span class="bar-zero">~0:00:00</span>
+        </div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">FieldValueCount</div>
+        <div class="bar-track">
+          <span class="bar-zero">~0:00:00</span>
+        </div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">Min/max</div>
+        <div class="bar-track">
+          <div class="bar-fill slow" style="width: 100%;">0:00:14</div>
+        </div>
+      </div>
+    </div>
+
+    <p>
+      Both <code>FieldValue</code>-based methods are essentially instant. The RESIDENT
+      min/max approach averaged 14 seconds — every run.
+    </p>
+
+    <h2>Why is RESIDENT so much slower?</h2>
+
+    <p>
+      The RESIDENT approach scans every row in the fact table to compute
+      <code>Min()</code> and <code>Max()</code>. On a large dataset, that's a full table pass
+      just to get two numbers.
+    </p>
+
+    <p>
+      The <code>FieldValue()</code> methods bypass this entirely. Qlik's associative engine already
+      maintains an internal symbol table of every distinct value per field — it's what powers the
+      green/white/grey selection states in list boxes. Reading min and max from that index
+      costs almost nothing, regardless of how many rows are in the fact table.
+    </p>
+
+    <div class="tip-box">
+      This is the same principle as the <a href="applymap-existence-trick.html">ApplyMap existence check trick</a> —
+      <code>FieldValue()</code> reads from the symbol table, not the data rows.
+      Once you internalise that distinction, a lot of performance optimisations start to make sense.
+    </div>
+
+    <h2>Which should you use?</h2>
+
+    <p>
+      Both <code>FieldValue</code> methods are equally fast here. The WHILE loop variant
+      (method 2) is slightly more compact but harder to read at a glance. Method 3 — the
+      <code>AUTOGENERATE</code> variant — separates the min/max lookup from the date generation,
+      which is easier to follow and debug. Due to this, I personally prefer method 3.
+    </p>
+
+    <p>
+      Either way: stop using RESIDENT for calendar date ranges. The performance difference
+      is real, it costs nothing to switch, and the code is no more complex.
+    </p>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <p>by <strong>Qlikard</strong></p>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

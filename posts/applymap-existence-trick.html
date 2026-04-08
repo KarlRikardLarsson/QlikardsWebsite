@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ApplyMap with 1 — The Existence Check Trick — Qlikard</title>
+  <meta name="post-id" content="applymap-existence-trick" />
+  <meta name="post-category" content="scripts" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🟢</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag scripts">Scripts</span>
+    <h1 class="post-title">ApplyMap with 1 — The Existence Check Trick (and How to Make It Faster)</h1>
+    <div class="post-meta-bar">
+      <span>April 3, 2026</span>
+      <span>·</span>
+      <span>7 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      This is one of my favourite Qlik script patterns. I use it constantly — for incremental loads,
+      for finding rows that exist in one table but not another, and anywhere I need a fast "does this
+      value exist?" check without loading extra fields. Once you start using it, you'll see it everywhere.
+    </p>
+
+    <h2>The core idea</h2>
+
+    <p>
+      A mapping table in Qlik is a special two-column lookup: a key and a value.
+      Most people use it to replace or enrich a field — map a product ID to a product name, for example.
+      But what if the value itself is the point?
+    </p>
+
+    <p>
+      If you map every distinct key to the value <code>1</code>, you've built a pure existence check.
+      Call <code>ApplyMap()</code> with that table — if the key exists, you get back <code>1</code>.
+      If it doesn't, you get the default (usually <code>0</code> or <code>null</code>).
+      That's all you need.
+    </p>
+
+<pre><code>Map_TransID_Exist:
+Mapping LOAD DISTINCT
+    TransID,
+    1
+RESIDENT Transactions;</code></pre>
+
+    <p>
+      Now you can use it to filter in a WHERE clause. Here's the classic incremental load pattern —
+      load only the QVD rows that are <em>not</em> already in the in-memory table:
+    </p>
+
+<pre><code>Concatenate(Transactions)
+LOAD * FROM '$(vQVDOutputName(Transactions))' (qvd)
+WHERE ApplyMap('Map_TransID_Exist', TransID) <> 1;</code></pre>
+
+    <p>
+      This gives you incremental loading without joins, without loops, and without any extra complexity.
+      The QVD is optimally read (only the WHERE clause breaks optimized mode, but that's unavoidable here),
+      and only the genuinely new rows are appended.
+    </p>
+
+    <div class="tip-box">
+      Always name your mapping tables clearly — <code>Map_[Field]_[Purpose]</code> is a convention I stick to.
+      It makes debugging a script written six months ago much less painful.
+    </div>
+
+    <h2>Other places this pattern shines</h2>
+
+    <p>
+      Incremental loads are the obvious use case, but the same trick applies anywhere you need to
+      compare two sets of values:
+    </p>
+
+    <ul>
+      <li>Find customers in a CRM table that have no matching row in the transactions table</li>
+      <li>Flag products that exist in a lookup but are missing from the fact table</li>
+      <li>Identify store codes present in one data source but absent in another</li>
+      <li>Filter a large table down to only the keys that appear in a smaller reference set</li>
+    </ul>
+
+    <p>
+      Any time the question is "does this value exist over there?" — map it to 1 and apply it.
+    </p>
+
+    <h2>The experiment: can we build the mapping table faster?</h2>
+
+    <p>
+      I was working with a dataset of <strong>10 million rows</strong> and noticed that building the
+      mapping table with <code>LOAD DISTINCT</code> was taking a noticeable chunk of time — especially
+      on high-cardinality fields. That got me thinking: Qlik already knows every distinct value in a
+      field. It has to, because of how the associative engine works internally. So why scan all 10
+      million rows to find distinct values when we could just ask Qlik what it already knows?
+    </p>
+
+    <p>
+      That's exactly what <code>FieldValue()</code> and <code>FieldValueCount()</code> do.
+      <code>FieldValueCount('FieldName')</code> returns the number of distinct values in a field.
+      <code>FieldValue('FieldName', n)</code> returns the nth distinct value.
+      Together with <code>AutoGenerate</code>, you can build the complete distinct value list by reading
+      directly from Qlik's internal symbol table — no row scanning required.
+    </p>
+
+<pre><code>DISTINCT:
+Mapping LOAD
+    FieldValue('TransID', RecNo()) AS TransID,
+    1
+AutoGenerate FieldValueCount('TransID');</code></pre>
+
+    <p>
+      This generates one row per distinct value, entirely from the in-memory index —
+      it never touches the actual data rows at all.
+    </p>
+
+    <h2>The test</h2>
+
+    <p>
+      I tested four combinations on the same 10M row dataset: <code>DISTINCT</code> load vs
+      <code>FieldValue</code> + <code>AutoGenerate</code>, each on a high-granularity field
+      (<em>many distinct values</em>) and a low-granularity field (<em>few distinct values</em>).
+      I ran each method several times and logged average execution time using a small logging subroutine.
+    </p>
+
+<pre><code>SUB Distinct
+
+    LET vTestStart = timestamp(now(), 'hh:mm:ss');
+
+    DISTINCT:
+    Mapping LOAD DISTINCT Dimension3, 1
+    RESIDENT Transactions;
+    DROP MAPPING TABLE DISTINCT;
+    Call sLog('Distinct Load HGran', '$(vTestStart)', timestamp(now(), 'hh:mm:ss'));
+
+
+    LET vTestStart = timestamp(now(), 'hh:mm:ss');
+
+    DISTINCT:
+    Mapping LOAD DISTINCT Number, 1
+    RESIDENT Transactions;
+    DROP MAPPING TABLE DISTINCT;
+    Call sLog('Distinct Load LGran', '$(vTestStart)', timestamp(now(), 'hh:mm:ss'));
+
+
+    LET vTestStart = timestamp(now(), 'hh:mm:ss');
+
+    DISTINCT:
+    Mapping LOAD
+        FieldValue('Dimension3', RecNo()) AS Dimension3,
+        1
+    AutoGenerate FieldValueCount('Dimension3');
+    DROP MAPPING TABLE DISTINCT;
+    Call sLog('Generate value HGran', '$(vTestStart)', timestamp(now(), 'hh:mm:ss'));
+
+
+    LET vTestStart = timestamp(now(), 'hh:mm:ss');
+
+    DISTINCT:
+    Mapping LOAD
+        FieldValue('Number', RecNo()) AS Number,
+        1
+    AutoGenerate FieldValueCount('Number');
+    DROP MAPPING TABLE DISTINCT;
+    Call sLog('Generate value LGran', '$(vTestStart)', timestamp(now(), 'hh:mm:ss'));
+
+END SUB</code></pre>
+
+    <h2>The results</h2>
+
+    <p>
+      The numbers came out better than I expected — particularly for the low-granularity field:
+    </p>
+
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Method</th>
+          <th>High granularity</th>
+          <th>Low granularity</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Mapping LOAD DISTINCT</td>
+          <td class="bad">0:00:51</td>
+          <td class="ok">0:00:17</td>
+        </tr>
+        <tr>
+          <td>FieldValue + AutoGenerate</td>
+          <td class="ok">0:00:18</td>
+          <td class="good">~0:00:00</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <figure class="post-figure">
+      <img src="../images/applymap-benchmark.png" alt="Bar chart comparing Distinct LOAD vs FieldValue AutoGenerate performance" />
+      <figcaption>Average execution time across runs. Lower is better.</figcaption>
+    </figure>
+
+    <p>
+      On the <strong>high-granularity field</strong>, <code>FieldValue</code> + <code>AutoGenerate</code>
+      was <strong>65% faster</strong> (18s vs 51s). On the <strong>low-granularity field</strong>,
+      the result was almost instant — essentially zero — compared to 17 seconds for <code>DISTINCT</code>.
+    </p>
+
+    <h2>Why is it faster?</h2>
+
+    <p>
+      <code>LOAD DISTINCT</code> has to scan every row in the source table to collect unique values.
+      With 10 million rows, that's 10 million comparisons — even if there are only 5 distinct values.
+    </p>
+
+    <p>
+      <code>FieldValue()</code> bypasses that entirely. Qlik's associative engine already maintains
+      an internal symbol table with every distinct value for every field — it's what powers
+      the green/white/grey selection states you see in list boxes. <code>FieldValueCount()</code>
+      just reads the size of that table, and <code>FieldValue(n)</code> reads the nth entry.
+      No row scanning, no deduplication work — it's already done.
+    </p>
+
+    <p>
+      This is why the gap is so dramatic on low-granularity fields: if there are only 10 distinct values
+      in 10 million rows, <code>DISTINCT</code> still checks all 10 million rows, while
+      <code>FieldValue</code> reads exactly 10 entries from the symbol table.
+    </p>
+
+    <div class="tip-box">
+      This only works after the source data is already loaded into memory. If you're building the mapping
+      table before loading the data, you still need <code>LOAD DISTINCT</code> from the QVD.
+    </div>
+
+    <h2>When to use which</h2>
+
+    <ul>
+      <li>
+        <strong>Use FieldValue + AutoGenerate</strong> when the source table is already in memory
+        (Resident load scenario). Always faster, especially on low-granularity fields.
+      </li>
+      <li>
+        <strong>Use LOAD DISTINCT</strong> when reading from a QVD or external source directly,
+        before data is in memory.
+      </li>
+    </ul>
+
+    <p>
+      The pattern stays the same either way — map distinct values to 1, apply with a WHERE clause.
+      Just swap the loading method based on whether your data is already in RAM.
+    </p>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <p>by <strong>Qlikard</strong></p>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

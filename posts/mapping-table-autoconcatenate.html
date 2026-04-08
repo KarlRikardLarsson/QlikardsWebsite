@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mapping Tables Auto-Concatenate — and That Can Bite You — Qlikard</title>
+  <meta name="post-id" content="mapping-table-autoconcatenate" />
+  <meta name="post-category" content="scripts" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🟢</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag scripts">Scripts</span>
+    <h1 class="post-title">Mapping Tables Auto-Concatenate — and That Can Bite You</h1>
+    <div class="post-meta-bar">
+      <span>April 8, 2026</span>
+      <span>·</span>
+      <span>5 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      I was building an extract from a new source system when I started seeing data I didn't
+      expect. Values that should have been there weren't, and I couldn't figure out why —
+      the script looked fine. After some head-scratching I traced it back to a mapping table
+      that was picking up rows it shouldn't have been. Turns out the table was
+      auto-concatenating, and I hadn't even considered that auto-concatenation applied to
+      mapping tables. I assumed it was a regular-table thing. It isn't.
+    </p>
+
+    <h2>Digging deeper into mapping tables</h2>
+
+    <p>
+      My first instinct was to use <code>Concatenate()</code>, the same way
+      you'd combine two regular tables:
+    </p>
+
+<pre><code>// Mapping table 1 — IDs 1 and 2
+MAP_ID_Label:
+MAPPING LOAD * INLINE [
+    ID, Label
+    1,  'From Map 1 — Alice'
+    2,  'From Map 1 — Bob'
+];
+
+// Attempting to append IDs 3 and 4
+Concatenate(MAP_ID_Label)
+MAPPING LOAD * INLINE [
+    ID, Label
+    3,  'From Map 2 — Charlie'
+    4,  'From Map 2 — Delta'
+];</code></pre>
+
+    <p>This immediately throws an error:</p>
+
+<pre><code>Table 'MAP_ID_Label' not found
+The error occurred here:
+Concatenate(MAP_ID_Label)
+MAPPING LOAD * INLINE [...]</code></pre>
+
+    <p>
+      The reason is that mapping tables are not regular tables. They live in a completely
+      separate namespace — Qlik's script engine keeps them apart from the data model entirely.
+      <code>Concatenate()</code> only knows about regular tables, so it can't find
+      <code>MAP_ID_Label</code> by name.
+    </p>
+
+    <h2>The trick — same name triggers auto-concatenation</h2>
+
+    <p>
+      What <em>does</em> work is reusing the same table name for a second
+      <code>MAPPING LOAD</code>. Qlik treats this the same way it treats regular tables with
+      duplicate names: it auto-concatenates. The second load appends its rows to the first,
+      and you end up with one combined mapping table.
+    </p>
+
+<pre><code>// Mapping table 1 — IDs 1 and 2
+MAP_ID_Label:
+MAPPING LOAD * INLINE [
+    ID, Label
+    1,  'From Map 1 — Alice'
+    2,  'From Map 1 — Bob'
+];
+
+// Same name → auto-concatenates onto the first mapping table
+MAP_ID_Label:
+MAPPING LOAD * INLINE [
+    ID, Label
+    3,  'From Map 2 — Charlie'
+    4,  'From Map 2 — Delta'
+];
+
+// ApplyMap now resolves all four IDs
+FACT_Result:
+LOAD
+    ID,
+    Name,
+    ApplyMap('MAP_ID_Label', ID, '[Not found]') AS Label
+RESIDENT Transactions;
+
+DROP TABLE Transactions;</code></pre>
+
+    <figure class="post-figure">
+      <img src="../images/mapping-table-autoconcatenate.png" alt="Table showing all four IDs resolved to their labels via ApplyMap" />
+      <figcaption>All four rows get their label. The two mapping loads combined into one.</figcaption>
+    </figure>
+
+    <p>
+      This is genuinely useful when your lookup data comes from multiple sources — different
+      QVDs, different inline blocks, different database tables — and you want a single
+      <code>ApplyMap()</code> call to cover all of them.
+    </p>
+
+    <h2>The danger — unintended auto-concatenation</h2>
+
+    <p>
+      The same behaviour that makes this trick possible is also what caused my original
+      data discrepancy. If you reuse a mapping table name by accident — say, you have a
+      subroutine that builds a <code>MAP_ID_Label</code> table, and you call it twice —
+      the second load silently appends to the first instead of replacing it. You get a
+      bloated mapping table with duplicate or conflicting keys, and <code>ApplyMap()</code>
+      will resolve to whichever value appears first for that key.
+    </p>
+
+    <p>
+      The script won't warn you. The app will load without errors. The wrong values will
+      just quietly appear in your charts.
+    </p>
+
+    <h2>The fix — DROP MAPPING TABLE</h2>
+
+    <p>
+      Qlik has a dedicated statement for cleaning up mapping tables:
+      <a href="https://help.qlik.com/es-ES/cloud-services/Subsystems/Hub/Content/Sense_Hub/Scripting/ScriptRegularStatements/drop-table.htm" target="_blank">DROP MAPPING TABLE</a>.
+      Use it immediately after you've finished applying a mapping table, before anything else
+      in the script has a chance to reuse that name.
+    </p>
+
+<pre><code>MAP_ID_Label:
+MAPPING LOAD
+    ID,
+    Label
+FROM [lib://DataFiles/Labels.qvd] (qvd);
+
+FACT_Result:
+LOAD
+    ID,
+    Name,
+    ApplyMap('MAP_ID_Label', ID, '[Not found]') AS Label
+RESIDENT Transactions;
+
+DROP MAPPING TABLE MAP_ID_Label;   // clean up immediately after use</code></pre>
+
+    <div class="tip-box">
+      <code>DROP MAPPING TABLE</code> is separate from <code>DROP TABLE</code> — they operate
+      on different namespaces. <code>DROP TABLE</code> won't touch a mapping table, and
+      <code>DROP MAPPING TABLE</code> won't touch a regular table. If you try to drop the
+      wrong kind, the statement silently does nothing.
+    </div>
+
+    <h2>Summary</h2>
+
+    <ul>
+      <li>
+        <strong>Concatenate() doesn't work on mapping tables</strong> — they're not in the
+        regular table namespace, so the engine can't find them by name.
+      </li>
+      <li>
+        <strong>Reusing the same mapping table name auto-concatenates</strong> — useful when
+        building a lookup from multiple sources.
+      </li>
+      <li>
+        <strong>The same behaviour causes silent bugs</strong> if a mapping table name is
+        reused unintentionally — wrong values, no errors.
+      </li>
+      <li>
+        <strong>Use DROP MAPPING TABLE after each use</strong> to prevent names from leaking
+        into later parts of the script.
+      </li>
+    </ul>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <p>by <strong>Qlikard</strong></p>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stop Using >= for Date Filters — Use WHERE EXISTS Instead — Qlikard</title>
+  <meta name="post-id" content="date-filter-benchmark" />
+  <meta name="post-category" content="scripts" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🟢</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+  <style>
+    .results-table { width: 100%; border-collapse: collapse; margin: 1.5rem 0; font-size: 0.9rem; }
+    .results-table th { text-align: left; padding: 0.6rem 0.75rem; border-bottom: 2px solid #e0e0e0; font-weight: 600; }
+    .results-table td { padding: 0.6rem 0.75rem; border-bottom: 1px solid #f0f0f0; }
+    .good  { color: #1a7a4a; font-weight: 600; }
+    .ok    { color: #b07d1a; font-weight: 600; }
+    .bad   { color: #c0392b; font-weight: 600; }
+    .bar-chart { margin: 2rem 0; }
+    .bar-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem; font-size: 0.85rem; }
+    .bar-label { width: 160px; flex-shrink: 0; color: #555; }
+    .bar-track { flex: 1; background: #f0f0f0; border-radius: 3px; height: 28px; position: relative; }
+    .bar-fill { height: 100%; border-radius: 3px; display: flex; align-items: center; padding-left: 10px; font-size: 0.8rem; font-weight: 600; color: #fff; transition: width 0.4s ease; }
+    .bar-fill.fast   { background: #1a7a4a; }
+    .bar-fill.medium { background: #2a7da8; }
+    .bar-fill.slow   { background: #2a7da8; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag scripts">Scripts</span>
+    <h1 class="post-title">Stop Using >= for Date Filters — Use WHERE EXISTS Instead</h1>
+    <div class="post-meta-bar">
+      <span>April 8, 2026</span>
+      <span>·</span>
+      <span>8 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      If you've been writing <code>WHERE TransactionDate >= '$(vDate)'</code> to filter a QVD load,
+      you're not alone — it's one of the most common patterns in Qlik scripts. It works.
+      But it's not the fastest option, and there's a subtle trap hiding in that string comparison.
+      A temp calendar with <code>WHERE Exists()</code> is both safer and quicker.
+    </p>
+
+    <h2>The problem with >=</h2>
+
+    <p>
+      On the surface, <code>WHERE TransactionDate >= '1/1/2024'</code> looks reasonable.
+      In practice it compares the stored date value against a string literal, which means
+      the result depends on your locale and how the date was formatted when it was written
+      to the QVD. On a machine with a different regional setting — or after a QVD rebuild
+      where the format changed — the filter silently returns the wrong rows.
+    </p>
+
+    <p>
+      The numerically safe version would be something like
+      <code>WHERE TransactionDate >= Num(Date#('1/1/2024','M/D/YYYY'))</code>,
+      but that's verbose and easy to get wrong. There's a cleaner solution.
+    </p>
+
+    <h2>The four methods I tested</h2>
+
+    <p>
+      I benchmarked four approaches to loading a filtered date range from a QVD.
+      All four return the same result — only the mechanics differ.
+    </p>
+
+    <h3>1. WHERE EXISTS with a temp calendar</h3>
+    <p>
+      Build a lightweight temporary table containing every date in the desired range using
+      <code>AUTOGENERATE</code>, then use <code>Exists()</code> in the WHERE clause to filter
+      the QVD load to only matching dates. Drop both tables when done.
+    </p>
+
+<pre><code>TMP_Calendar:
+LOAD
+    Date($(vMinDate) + RowNo() - 1) as TransactionDate
+AUTOGENERATE $(vMaxDate) - $(vMinDate) + 1;
+
+Transactions:
+LOAD
+    TransLineID,
+    TransID,
+    TransactionDate
+    // ... other fields
+FROM [lib://DataFiles/Transactions.qvd]
+(qvd)
+WHERE Exists(TransactionDate);
+
+DROP TABLES Transactions, TMP_Calendar;</code></pre>
+
+    <h3>2. >= comparison</h3>
+    <p>The classic hardcoded string comparison filter, the kind you see in most scripts.</p>
+
+<pre><code>Transactions:
+LOAD
+    TransLineID,
+    TransID,
+    TransactionDate
+    // ... other fields
+FROM [lib://DataFiles/Transactions.qvd]
+(qvd)
+WHERE TransactionDate >= '1/1/2024';</code></pre>
+
+    <h3>3. Inner join with a temp calendar</h3>
+    <p>
+      Load the full QVD first, then inner join a generated calendar onto it.
+      This keeps only rows where <code>TransactionDate</code> exists in both tables.
+    </p>
+
+<pre><code>Transactions:
+LOAD
+    TransLineID,
+    TransID,
+    TransactionDate
+    // ... other fields
+FROM [lib://DataFiles/Transactions.qvd]
+(qvd);
+
+Inner join(Transactions)
+LOAD
+    Date($(vMinDate) + RowNo() - 1) as TransactionDate
+AUTOGENERATE $(vMaxDate) - $(vMinDate) + 1;
+
+DROP TABLES Transactions;</code></pre>
+
+    <h3>4. LEFT KEEP with a temp calendar</h3>
+    <p>
+      Similar to the inner join approach but uses <code>LEFT KEEP</code> instead — loads the full
+      QVD, then trims it down to rows whose <code>TransactionDate</code> exists in the calendar.
+    </p>
+
+<pre><code>TMP_Calendar:
+LOAD
+    Date($(vMinDate) + RowNo() - 1) as TransactionDate
+AUTOGENERATE $(vMaxDate) - $(vMinDate) + 1;
+
+LEFT KEEP (TMP_Calendar)
+Transactions:
+LOAD
+    TransLineID,
+    TransID,
+    TransactionDate
+    // ... other fields
+FROM [lib://DataFiles/Transactions.qvd]
+(qvd);
+
+DROP TABLES Transactions, TMP_Calendar;</code></pre>
+
+    <div class="tip-box">
+      Methods 3 and 4 both load the <em>entire</em> QVD into memory before filtering.
+      That means they pay full I/O cost for every row regardless of how many you actually need —
+      which matters a lot on large files.
+    </div>
+
+    <h2>Test setup</h2>
+
+    <p>
+      Each method was run 5 times against a 10 000 000-row transactions dataset.
+      A logging subroutine captured start and end timestamps for each run, and the results
+      were averaged. <code>vMinDate</code> and <code>vMaxDate</code> were pre-calculated
+      variables covering the desired date range.
+    </p>
+
+    <h2>Results</h2>
+
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Method</th>
+          <th>Avg execution time</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>WHERE EXISTS (temp calendar)</td>
+          <td class="good">0:00:15</td>
+        </tr>
+        <tr>
+          <td>&gt;= comparison</td>
+          <td class="ok">0:00:20</td>
+        </tr>
+        <tr>
+          <td>Inner join (temp calendar)</td>
+          <td class="ok">0:00:20</td>
+        </tr>
+        <tr>
+          <td>LEFT KEEP (temp calendar)</td>
+          <td class="bad">0:00:22</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="bar-chart">
+      <div class="bar-row">
+        <div class="bar-label">WHERE EXISTS</div>
+        <div class="bar-track">
+          <div class="bar-fill fast" style="width: 68%;">0:00:15</div>
+        </div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">&gt;=</div>
+        <div class="bar-track">
+          <div class="bar-fill medium" style="width: 91%;">0:00:20</div>
+        </div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">Inner join</div>
+        <div class="bar-track">
+          <div class="bar-fill medium" style="width: 91%;">0:00:20</div>
+        </div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">LEFT KEEP</div>
+        <div class="bar-track">
+          <div class="bar-fill slow" style="width: 100%;">0:00:22</div>
+        </div>
+      </div>
+    </div>
+
+    <p>
+      <strong>WHERE EXISTS with a temp calendar is the clear winner</strong> — 25% faster than
+      the <code>>=</code> pattern, and 32% faster than LEFT KEEP.
+    </p>
+
+    <h2>Why is WHERE EXISTS faster?</h2>
+
+    <p>
+      When Qlik evaluates <code>WHERE Exists(TransactionDate)</code>, it uses the already-loaded
+      <code>TMP_Calendar</code> table as a hash set. Each row from the QVD is checked against
+      that set in constant time — it's a simple key lookup.
+    </p>
+
+    <p>
+      The <code>>=</code> approach evaluates a comparison expression for <em>every single row</em>
+      as it streams through the QVD. That's 10 000 000 evaluations, each requiring the engine to
+      interpret the value and the comparison operand.
+    </p>
+
+    <p>
+      Inner join and LEFT KEEP are worst off because they read the entire QVD into RAM first —
+      all 10 million rows — and only then apply the filter. WHERE EXISTS filters <em>during</em>
+      the read, so rows outside the date range are never materialised in memory at all.
+    </p>
+
+    <div class="tip-box">
+      The temp calendar approach also composes nicely with the
+      <a href="calendar-becnhmark.html">fast calendar generation techniques</a> covered in an earlier post.
+      Use <code>FieldValue()</code> to find your min/max dates for free, then
+      <code>AUTOGENERATE</code> the range, and filter with <code>WHERE Exists()</code>.
+      The whole setup costs almost nothing extra.
+    </div>
+
+    <h2>The takeaway</h2>
+
+    <p>
+      Next time you reach for <code>WHERE TransactionDate >= '$(vDate)'</code>, consider the
+      temp calendar pattern instead. It's faster, it sidesteps locale-dependent string
+      comparisons, and the intent is explicit — the calendar table makes it immediately obvious
+      what date range you're loading.
+    </p>
+
+    <p>
+      The pattern looks like more code at first glance, but it's two short blocks with a clear
+      purpose each. And on large QVDs, that 25% reduction in load time adds up.
+    </p>
+
+    <hr style="border: none; border-top: 1px solid #e8e8e8; margin: 3rem 0;" />
+
+    <h2>Taking it further — the naming trap</h2>
+
+    <p>
+      WHERE EXISTS being the fastest isn't the whole story. That speed advantage only holds
+      under one specific condition: <strong>the field name in the temp calendar must match
+      the field name being loaded from the QVD</strong>. If they differ, you silently lose
+      the optimized load and the performance gain disappears.
+    </p>
+
+    <p>
+      This is easy to miss because the script still runs correctly — the filter works, the
+      row counts are right. The cost is invisible until you benchmark it.
+    </p>
+
+    <h3>What "optimized load" means here</h3>
+
+    <p>
+      Qlik's QVD engine has an optimized read mode: when a WHERE clause can be resolved
+      entirely using the symbol tables of already-loaded fields, the engine skips full row
+      parsing for excluded records. It's fast because it never materialises the rows it
+      drops. <code>WHERE Exists(TransactionDate)</code> qualifies for this — but only
+      when the field name in the <code>Exists()</code> check maps directly to a field
+      that's already in memory <em>with the same name</em> as the field being loaded.
+    </p>
+
+    <h2>Three methods — the name matters</h2>
+
+    <h3>1. WHERE EXISTS — different field names (unoptimized)</h3>
+    <p>
+      The temp calendar is built with a field called <code>TransactionDate2</code>, but the
+      QVD field is loaded as <code>TransactionDate</code>. They hold the same values — but
+      the names don't match. Qlik can't use optimized mode and falls back to a row-by-row
+      evaluation.
+    </p>
+
+<pre><code>TMP_Calendar:
+LOAD
+    Date($(vMinDate) + RowNo() - 1) as TransactionDate2
+AUTOGENERATE $(vMaxDate) - $(vMinDate) + 1;
+
+Transactions:
+LOAD
+    TransLineID,
+    TransID,
+    TransactionDate
+    // ... other fields
+FROM [lib://DataFiles/Transactions.qvd]
+(qvd)
+WHERE Exists(TransactionDate2, TransactionDate);
+
+DROP TABLES Transactions, TMP_Calendar;</code></pre>
+
+    <h3>2. WHERE EXISTS — same field name via AS (optimized)</h3>
+    <p>
+      The fix is simple: use <code>AS</code> to alias the QVD field to match the calendar
+      field name. Now both sides of the exists check share the same name, the engine
+      recognises it as an optimized load, and the speed advantage returns.
+    </p>
+
+<pre><code>TMP_Calendar:
+LOAD
+    Date($(vMinDate) + RowNo() - 1) as TransactionDate2
+AUTOGENERATE $(vMaxDate) - $(vMinDate) + 1;
+
+Transactions:
+LOAD
+    TransLineID,
+    TransID,
+    TransactionDate as TransactionDate2   // renamed to match calendar
+    // ... other fields
+FROM [lib://DataFiles/Transactions.qvd]
+(qvd)
+WHERE Exists(TransactionDate2, TransactionDate);
+
+DROP TABLES Transactions, TMP_Calendar;</code></pre>
+
+    <div class="tip-box">
+      If renaming the field downstream would break associations or chart expressions, you can
+      always rename it back in a preceding load after the QVD read. The optimized read still
+      fires on the QVD step — the preceding load runs in memory and costs very little.
+    </div>
+
+    <h3>3. ApplyMap — when you can't (or don't want to) rename</h3>
+    <p>
+      Sometimes renaming the field isn't practical — maybe it associates to multiple tables
+      or you'd have to update a lot of downstream expressions. In that case, <code>ApplyMap()</code>
+      is the right alternative. Build the temp calendar as a mapping table instead of a regular
+      table, and filter on the returned value.
+    </p>
+
+<pre><code>TMP_Calendar:
+Mapping LOAD
+    Date($(vMinDate) + RowNo() - 1) as TransactionDate2,
+    1
+AUTOGENERATE $(vMaxDate) - $(vMinDate) + 1;
+
+Transactions:
+LOAD
+    TransLineID,
+    TransID,
+    TransactionDate
+    // ... other fields
+FROM [lib://DataFiles/Transactions.qvd]
+(qvd)
+WHERE ApplyMap('TMP_Calendar', TransactionDate) = 1;
+
+DROP TABLES Transactions;</code></pre>
+
+    <p>
+      Note that mapping tables are automatically dropped after a reload — you don't need an
+      explicit <code>DROP TABLE</code> for them.
+    </p>
+
+    <h2>Results</h2>
+
+    <p>
+      The benchmark was run on the same 10 000 000-row dataset, averaged over 5 iterations.
+    </p>
+
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Method</th>
+          <th>Optimized load?</th>
+          <th>Avg execution time</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>WHERE EXISTS — same name (AS)</td>
+          <td class="good">Yes</td>
+          <td class="good">0:00:13</td>
+        </tr>
+        <tr>
+          <td>WHERE EXISTS — different names</td>
+          <td class="bad">No</td>
+          <td class="bad">0:00:18</td>
+        </tr>
+        <tr>
+          <td>ApplyMap</td>
+          <td class="ok">N/A</td>
+          <td class="ok">0:00:19</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="bar-chart">
+      <div class="bar-row">
+        <div class="bar-label">EXISTS same name</div>
+        <div class="bar-track">
+          <div class="bar-fill fast" style="width: 68%;">0:00:13</div>
+        </div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">EXISTS diff name</div>
+        <div class="bar-track">
+          <div class="bar-fill slow" style="width: 95%;">0:00:18</div>
+        </div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">ApplyMap</div>
+        <div class="bar-track">
+          <div class="bar-fill slow" style="width: 100%;">0:00:19</div>
+        </div>
+      </div>
+    </div>
+
+    <p>
+      When the field names match (via <code>AS</code>), WHERE EXISTS is noticeably faster —
+      13 seconds versus 18–19 for the unoptimized alternatives. That's a ~30% improvement
+      just from an alias. When the names differ, WHERE EXISTS and ApplyMap land at essentially
+      the same speed — both are doing row-by-row evaluation with no optimized load.
+    </p>
+
+    <h2>Which should you use?</h2>
+
+    <p>
+      The decision comes down to whether you can make the field names match:
+    </p>
+
+    <ul>
+      <li>
+        <strong>You can rename with AS →</strong> use WHERE EXISTS with matching names.
+        It's the fastest option and the intent is clear.
+      </li>
+      <li>
+        <strong>You can't (or don't want to) rename →</strong> use ApplyMap.
+        You won't get optimized load, but you get the same speed as unoptimized EXISTS
+        with more flexibility: ApplyMap can handle mismatched names cleanly, and — unlike
+        EXISTS — it can be extended to filter on multiple fields if needed.
+      </li>
+    </ul>
+
+    <p>
+      Either way, the two-argument form of <code>Exists()</code> with different names is
+      the worst of both worlds: it looks like an optimized load but isn't, and it offers
+      no flexibility advantage over ApplyMap. Avoid it.
+    </p>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <p>by <strong>Qlikard</strong></p>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

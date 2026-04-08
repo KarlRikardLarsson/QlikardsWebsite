@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Progress Bar in a Qlik Table — Qlikard</title>
+  <meta name="post-id" content="progress-bar-in-table" />
+  <meta name="post-category" content="viz" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🟢</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+  <style>
+    /* ── Color swatch grid ── */
+    .swatch-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+      gap: 0.75rem;
+      margin: 1.25rem 0;
+    }
+    .swatch-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      font-size: 0.78rem;
+    }
+    .swatch-preview {
+      display: flex;
+      height: 32px;
+    }
+    .swatch-preview span { flex: 1; }
+    .swatch-body {
+      padding: 0.6rem 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+    .swatch-name {
+      font-weight: 600;
+      color: var(--text);
+      font-size: 0.8rem;
+      margin-bottom: 0.15rem;
+    }
+    .swatch-codes {
+      display: flex;
+      flex-direction: column;
+      gap: 0.1rem;
+    }
+    .swatch-codes code {
+      font-size: 0.7rem;
+      color: var(--muted);
+      background: none;
+      border: none;
+      padding: 0;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    }
+
+    /* ── Live bar demo ── */
+    .bar-demo {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin: 1.5rem 0;
+    }
+    .bar-demo-header {
+      display: grid;
+      grid-template-columns: 110px 1fr 70px;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--muted);
+    }
+    .bar-demo-row {
+      display: grid;
+      grid-template-columns: 110px 1fr 70px;
+      gap: 0.5rem;
+      align-items: center;
+      padding: 0.55rem 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .bar-demo-row:last-child { border-bottom: none; }
+    .bar-demo-name { font-size: 0.82rem; color: var(--text); }
+    .bar-svg-wrap { display: flex; align-items: center; }
+    .bar-pct { font-size: 0.78rem; color: var(--muted); text-align: right; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag viz">Visualizations</span>
+    <h1 class="post-title">How to Create a Progress Bar Inside a Qlik Table</h1>
+    <div class="post-meta-bar">
+      <span>April 3, 2026</span>
+      <span>·</span>
+      <span>5 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      A table showing budget vs actual is useful. The same table with an inline bar that
+      changes colour based on how close you are to target — and still sorts correctly and
+      exports cleanly — is a lot more useful. Here's how to build it with a single expression
+      and no extensions.
+    </p>
+
+    <!-- IMAGE 1 — save to images/progress-bar-result.png -->
+    <figure class="post-figure">
+      <img src="../images/progress-bar-result.png" alt="Progress bar column inside a Qlik Sense table" />
+      <figcaption>The finished result — a colour-coded bar column that updates with selections.</figcaption>
+    </figure>
+
+    <h2>The key setting: Representation → Image</h2>
+
+    <p>
+      Before anything else — open the column settings for your measure and change
+      <strong>Representation</strong> from <em>Value</em> to <em>Image</em>.
+      Without this, Qlik shows the raw expression string instead of rendering the bar.
+    </p>
+
+    <!-- IMAGE 2 — save to images/progress-bar-representation.png -->
+    <figure class="post-figure">
+      <img src="../images/progress-bar-representation.png" alt="Qlik Sense column settings with Representation set to Image" />
+      <figcaption>Column settings → Representation → Image. Easy to miss, nothing works without it.</figcaption>
+    </figure>
+
+    <div class="tip-box">
+      The Representation setting is per column — if you have multiple bar columns, set it on each one.
+    </div>
+
+    <h2>The expression</h2>
+
+    <p>
+      The expression uses <code>Dual()</code> to return two things at once: an inline SVG string
+      for the visual bar, and a numeric value for correct sorting and clean export.
+      Replace <code>exp1</code> with your target/budget measure and <code>exp2</code> with
+      your actual/achieved measure.
+    </p>
+
+<pre><code>Dual(
+  'data:image/svg+xml,&lt;svg xmlns="http://www.w3.org/2000/svg" height="12" width="150"&gt;'
+
+  // Background track (light grey)
+  &amp; '&lt;rect x="5" y="0" width="100" height="12" style="fill:%23F0F3F6" /&gt;'
+
+  // Foreground bar — width driven by ratio, colour driven by performance
+  &amp; '&lt;rect x="5" y="2" width="'
+  &amp; Num(RangeMin(100, (exp2 / exp1) * 100), '0')
+  &amp; '" height="8" style="fill:'
+  &amp; If((exp2 / exp1) &lt; 0.7,  '%23D3CFE0',
+       If((exp2 / exp1) &lt; 1, '%237A6891',
+                             '%234F3C67'))
+  &amp; '" /&gt;'
+
+  // Percentage label to the right of the bar
+  &amp; '&lt;text text-anchor="start" font-family="Source Sans Pro" font-size="9" fill="black"&gt;'
+  &amp; '&lt;tspan dominant-baseline="central" x="110" y="9"&gt;'
+  &amp; Num(RangeMin(1, (exp2 / exp1)), '0%')
+  &amp; '&lt;/tspan&gt;&lt;/text&gt;'
+
+  &amp; '&lt;/svg&gt;',
+
+  // Numeric value used for sorting and export
+  Num((exp2 / exp1), '0%')
+)</code></pre>
+
+    <h2>Why Dual()?</h2>
+
+    <p>
+      <code>Dual()</code> stores two representations of the same value: a string and a number.
+      Qlik displays the string (the SVG bar) but uses the number for column sorting.
+      Without it, sorting would be alphabetical on the SVG string, which is meaningless.
+    </p>
+
+    <h2>How the colours work</h2>
+
+    <p>
+      The three colours are not track/fill/label — they're performance states.
+      The bar colour changes automatically based on how the actual compares to the target:
+    </p>
+
+    <!-- Live demo -->
+    <div class="bar-demo">
+      <div class="bar-demo-header">
+        <span>Department</span>
+        <span>vs Budget</span>
+        <span style="text-align:right">%</span>
+      </div>
+      <div class="bar-demo-row">
+        <span class="bar-demo-name">Sales</span>
+        <div class="bar-svg-wrap">
+          <svg xmlns="http://www.w3.org/2000/svg" height="12" width="150">
+            <rect x="5" y="0" width="100" height="12" style="fill:#F0F3F6"/>
+            <rect x="5" y="2" width="100" height="8" style="fill:#4F3C67"/>
+            <text text-anchor="start" font-family="sans-serif" font-size="9" fill="#555">
+              <tspan dominant-baseline="central" x="110" y="9">103%</tspan>
+            </text>
+          </svg>
+        </div>
+        <span class="bar-pct" style="color:#4F3C67;font-weight:600">≥ 100%</span>
+      </div>
+      <div class="bar-demo-row">
+        <span class="bar-demo-name">Marketing</span>
+        <div class="bar-svg-wrap">
+          <svg xmlns="http://www.w3.org/2000/svg" height="12" width="150">
+            <rect x="5" y="0" width="100" height="12" style="fill:#F0F3F6"/>
+            <rect x="5" y="2" width="82" height="8" style="fill:#7A6891"/>
+            <text text-anchor="start" font-family="sans-serif" font-size="9" fill="#555">
+              <tspan dominant-baseline="central" x="110" y="9">82%</tspan>
+            </text>
+          </svg>
+        </div>
+        <span class="bar-pct" style="color:#7A6891;font-weight:600">70–99%</span>
+      </div>
+      <div class="bar-demo-row">
+        <span class="bar-demo-name">Operations</span>
+        <div class="bar-svg-wrap">
+          <svg xmlns="http://www.w3.org/2000/svg" height="12" width="150">
+            <rect x="5" y="0" width="100" height="12" style="fill:#F0F3F6"/>
+            <rect x="5" y="2" width="54" height="8" style="fill:#D3CFE0"/>
+            <text text-anchor="start" font-family="sans-serif" font-size="9" fill="#555">
+              <tspan dominant-baseline="central" x="110" y="9">54%</tspan>
+            </text>
+          </svg>
+        </div>
+        <span class="bar-pct" style="color:#D3CFE0;font-weight:600">&lt; 70%</span>
+      </div>
+    </div>
+
+    <table class="results-table">
+      <thead>
+        <tr><th>Color</th><th>Hex</th><th>Condition</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span style="display:inline-block;width:14px;height:14px;background:#F0F3F6;border:1px solid #ccc;border-radius:3px;vertical-align:middle"></span> Track</td>
+          <td><code>#F0F3F6</code></td>
+          <td>Always</td>
+          <td>Background of the bar</td>
+        </tr>
+        <tr>
+          <td><span style="display:inline-block;width:14px;height:14px;background:#D3CFE0;border-radius:3px;vertical-align:middle"></span> Light</td>
+          <td><code>#D3CFE0</code></td>
+          <td>actual / budget &lt; 0.7</td>
+          <td>Under 70% — needs attention</td>
+        </tr>
+        <tr>
+          <td><span style="display:inline-block;width:14px;height:14px;background:#7A6891;border-radius:3px;vertical-align:middle"></span> Mid</td>
+          <td><code>#7A6891</code></td>
+          <td>0.7 ≤ ratio &lt; 1.0</td>
+          <td>70–99% — on the way</td>
+        </tr>
+        <tr>
+          <td><span style="display:inline-block;width:14px;height:14px;background:#4F3C67;border-radius:3px;vertical-align:middle"></span> Dark</td>
+          <td><code>#4F3C67</code></td>
+          <td>ratio ≥ 1.0</td>
+          <td>At or above target</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="tip-box">
+      The <code>#</code> in colour codes must be written as <code>%23</code> inside the SVG string —
+      otherwise Qlik treats it as a variable reference and the colour breaks silently.
+    </div>
+
+    <h2>Alternative colour palettes</h2>
+
+    <p>
+      Each palette below uses the same three-state structure: <em>under 70% / 70–99% / at target</em>.
+      Copy the three <code>%23</code>-encoded values and replace the corresponding colours in the expression.
+    </p>
+
+    <div class="swatch-grid">
+
+      <div class="swatch-card">
+        <div class="swatch-preview">
+          <span style="background:#F5DCDB"></span>
+          <span style="background:#E07B5F"></span>
+          <span style="background:#2D7A2D"></span>
+        </div>
+        <div class="swatch-body">
+          <span class="swatch-name">Traffic Light</span>
+          <div class="swatch-codes">
+            <code>&lt;70%  %23F5DCDB</code>
+            <code>70–99% %23E07B5F</code>
+            <code>≥100%  %232D7A2D</code>
+          </div>
+        </div>
+      </div>
+
+      <div class="swatch-card">
+        <div class="swatch-preview">
+          <span style="background:#CFD8E0"></span>
+          <span style="background:#4A7BA8"></span>
+          <span style="background:#1A3A5C"></span>
+        </div>
+        <div class="swatch-body">
+          <span class="swatch-name">Steel Blue</span>
+          <div class="swatch-codes">
+            <code>&lt;70%  %23CFD8E0</code>
+            <code>70–99% %234A7BA8</code>
+            <code>≥100%  %231A3A5C</code>
+          </div>
+        </div>
+      </div>
+
+      <div class="swatch-card">
+        <div class="swatch-preview">
+          <span style="background:#CFE0CF"></span>
+          <span style="background:#5A8060"></span>
+          <span style="background:#1E4D26"></span>
+        </div>
+        <div class="swatch-body">
+          <span class="swatch-name">Forest Green</span>
+          <div class="swatch-codes">
+            <code>&lt;70%  %23CFE0CF</code>
+            <code>70–99% %235A8060</code>
+            <code>≥100%  %231E4D26</code>
+          </div>
+        </div>
+      </div>
+
+      <div class="swatch-card">
+        <div class="swatch-preview">
+          <span style="background:#E0D8CF"></span>
+          <span style="background:#A87B4A"></span>
+          <span style="background:#5C3A1E"></span>
+        </div>
+        <div class="swatch-body">
+          <span class="swatch-name">Warm Amber</span>
+          <div class="swatch-codes">
+            <code>&lt;70%  %23E0D8CF</code>
+            <code>70–99% %23A87B4A</code>
+            <code>≥100%  %235C3A1E</code>
+          </div>
+        </div>
+      </div>
+
+      <div class="swatch-card">
+        <div class="swatch-preview">
+          <span style="background:#CFE0DF"></span>
+          <span style="background:#4A9894"></span>
+          <span style="background:#1A4D4B"></span>
+        </div>
+        <div class="swatch-body">
+          <span class="swatch-name">Teal</span>
+          <div class="swatch-codes">
+            <code>&lt;70%  %23CFE0DF</code>
+            <code>70–99% %234A9894</code>
+            <code>≥100%  %231A4D4B</code>
+          </div>
+        </div>
+      </div>
+
+      <div class="swatch-card">
+        <div class="swatch-preview">
+          <span style="background:#E0E0E0"></span>
+          <span style="background:#888888"></span>
+          <span style="background:#222222"></span>
+        </div>
+        <div class="swatch-body">
+          <span class="swatch-name">Neutral Grey</span>
+          <div class="swatch-codes">
+            <code>&lt;70%  %23E0E0E0</code>
+            <code>70–99% %23888888</code>
+            <code>≥100%  %23222222</code>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <h2>Limitations</h2>
+    <p>
+      The biggest one to be aware of: <strong>this does not export to Excel</strong>.
+      When a user exports the table, the column will contain the raw SVG string instead of the bar —
+      something like <code>data:image/svg+xml,&lt;svg xmlns=...</code>. It's not useful and
+      it can confuse end users who expect a clean spreadsheet.
+    </p>
+    <p>
+      If Excel export is a requirement for your users, consider keeping the percentage as a
+      separate plain measure column alongside the bar, so at least the number comes through cleanly.
+      The <code>Dual()</code> numeric value will export correctly in some clients, but the visual
+      bar itself is always lost outside of Qlik.
+    </p>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <p>by <strong>Qlikard</strong></p>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

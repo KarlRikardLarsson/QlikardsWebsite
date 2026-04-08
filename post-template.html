@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!--
+    ====================================================
+    HOW TO ADD A NEW POST
+    ====================================================
+    1. Copy this file to posts/your-post-slug.html
+    2. Update the <title> below
+    3. Fill in the post content (between "POST CONTENT" comments)
+    4. Open js/posts-data.js and add a new entry to POSTS:
+
+       {
+         id: 'your-post-slug',
+         title: 'Your Post Title',
+         excerpt: 'Short 1-2 sentence description for the card.',
+         category: 'scripts',   // scripts | viz | automate | general
+         date: '2026-04-10',    // YYYY-MM-DD
+         file: 'posts/your-post-slug.html',
+       },
+
+    That's it! The homepage will pick it up automatically.
+    ====================================================
+  -->
+  <title>Post Title — Qlikard</title>
+  <meta name="post-id" content="your-post-slug" />
+  <meta name="post-category" content="scripts" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🟢</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back to All Posts</a>
+
+    <!-- Change category class: scripts | viz | automate | general -->
+    <span class="tag scripts">Scripts</span>
+
+    <h1 class="post-title">Your Post Title Goes Here</h1>
+
+    <div class="post-meta-bar">
+      <span>📅 April 10, 2026</span>
+      <span>·</span>
+      <span>5 min read</span>
+    </div>
+  </div>
+
+  <!-- ===== POST CONTENT — Edit everything below ===== -->
+  <div class="post-content">
+
+    <p>
+      Start with a short intro paragraph. What problem does this post solve?
+      Who is it for? Keep it to 2–3 sentences.
+    </p>
+
+    <h2>Section Heading</h2>
+    <p>Your content here. Use <code>inline code</code> for field names, function names, etc.</p>
+
+    <pre><code>// Code blocks look like this
+LET vMyVariable = 5;
+
+FOR i = 1 to $(vMyVariable)
+  LOAD * FROM [lib://MyData/file_$(i).qvd] (qvd);
+NEXT i</code></pre>
+
+    <p>Explanation of the code above...</p>
+
+    <div class="tip-box">
+      Put a quick tip or warning here. The tip-box class adds the 💡 icon automatically.
+    </div>
+
+    <h2>Another Section</h2>
+    <p>More content. Use <strong>bold</strong> for key terms and <em>emphasis</em> for highlights.</p>
+
+    <ul>
+      <li>Bullet point one</li>
+      <li>Bullet point two</li>
+      <li>Bullet point three</li>
+    </ul>
+
+    <h3>Sub-section if needed</h3>
+    <p>Smaller heading for sub-topics within a section.</p>
+
+  </div>
+  <!-- ===== END POST CONTENT ===== -->
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <p>Built with ❤️ by <strong style="color:var(--green)">Qlikard</strong></p>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BuildNullTable — Handle Missing Dimension Keys Automatically — Qlikard</title>
+  <meta name="post-id" content="build-null-table" />
+  <meta name="post-category" content="scripts" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🟢</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag scripts">Scripts</span>
+    <h1 class="post-title">BuildNullTable — Handle Missing Dimension Keys Automatically</h1>
+    <div class="post-meta-bar">
+      <span>April 3, 2026</span>
+      <span>·</span>
+      <span>6 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      Every data model has them: fact rows that reference a key that doesn't exist in the dimension table.
+      Maybe it's dirty source data, a late-arriving dimension, or a deleted record that left orphaned
+      transactions behind. Without handling, those rows show up as blank or NULL in every chart and table
+      in the dashboard. Users notice. They ask questions. It erodes trust.
+    </p>
+
+    <p>
+      <code>BuildNullTable</code> is the subroutine I reach for to solve this cleanly and consistently —
+      in one call per dimension table, with no manual field-by-field wiring.
+    </p>
+
+    <h2>The problem in plain terms</h2>
+
+    <p>
+      Say you have a <code>Transactions</code> fact table and a <code>DIM_Customers</code> dimension.
+      Some transactions reference a <code>%CustomerID</code> that doesn't exist in <code>DIM_Customers</code>.
+      Qlik can't associate those rows to any customer, so every customer attribute —
+      name, region, segment — shows as <code>-</code> or blank.
+    </p>
+
+    <p>
+      The fix is to add a catch-all row to <code>DIM_Customers</code>: one row where the key field
+      gets a special value that Qlik can associate to, and all attribute fields get a meaningful label
+      like <code>[Missing]</code>. Users see something informative instead of nothing.
+    </p>
+
+    <div class="tip-box">
+      This post assumes your key fields are identified by a prefix — <code>%</code> by convention.
+      If your model uses a different naming convention, just change the <code>KeyPrefix</code> parameter.
+    </div>
+
+    <h2>How it works</h2>
+
+    <p>
+      The subroutine loops through every field in the target dimension table using
+      <code>NoOfFields()</code> and <code>FieldName()</code>. For each field it decides:
+    </p>
+
+    <ul>
+      <li>
+        <strong>Key field</strong> (starts with the key prefix, e.g. <code>%</code>) →
+        set to <code>OtherSymbol</code> (default <code>+</code>). This is Qlik's built-in
+        "other" symbol — it associates correctly without creating false matches to real keys.
+      </li>
+      <li>
+        <strong>Attribute field</strong> → set to your chosen label, e.g. <code>[Missing]</code>.
+        This is what users see in the dashboard.
+      </li>
+    </ul>
+
+    <p>
+      It then builds a dynamic <code>LOAD</code> statement from those values and appends one row to the
+      dimension table using <code>AUTOGENERATE 1</code>. One subroutine call, one null row, zero manual
+      field maintenance.
+    </p>
+
+    <h2>Parameters</h2>
+
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Parameter</th>
+          <th>Description</th>
+          <th>Example</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>TableName</code></td>
+          <td>The dimension table to add the row to</td>
+          <td><code>'DIM_Customers'</code></td>
+        </tr>
+        <tr>
+          <td><code>OtherText</code></td>
+          <td>The label shown for unmatched records</td>
+          <td><code>'[Missing]'</code></td>
+        </tr>
+        <tr>
+          <td><code>KeyPrefix</code></td>
+          <td>The character that identifies key fields</td>
+          <td><code>'%'</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Dependency</h2>
+
+    <p>
+      You must set <code>OtherSymbol</code> before calling the subroutine. This is the value Qlik
+      uses internally for the "other" bucket — setting it yourself lets you control which symbol
+      gets placed in the key fields of your null row.
+    </p>
+
+<pre><code>SET OtherSymbol = +;</code></pre>
+
+    <h2>The subroutine</h2>
+
+<pre><code>SET OtherSymbol = +;
+
+SUB BuildNullTable(TableName, OtherText, KeyPrefix)
+
+    LET vLoadExpr   = '';
+    LET vFieldCount = NoOfFields('$(TableName)');
+
+    FOR i = 1 TO $(vFieldCount)
+
+        LET vFieldName = FieldName($(i), '$(TableName)');
+
+        // Key field → OtherSymbol (associable, no real match)
+        IF Left('$(vFieldName)', 1) = '$(KeyPrefix)' THEN
+            LET vFieldValue = '$(OtherSymbol)';
+        ELSE
+            // Attribute field → OtherText (shown in the dashboard)
+            LET vFieldValue = '$(OtherText)';
+        ENDIF
+
+        // Build up the field expression for the LOAD statement
+        IF Len('$(vLoadExpr)') > 0 THEN
+            LET vLoadExpr = '$(vLoadExpr),'
+                & Chr(10) & '    '
+                & Chr(39) & '$(vFieldValue)' & Chr(39)
+                & ' AS [$(vFieldName)]';
+        ELSE
+            LET vLoadExpr = '    '
+                & Chr(39) & '$(vFieldValue)' & Chr(39)
+                & ' AS [$(vFieldName)]';
+        ENDIF
+
+    NEXT i
+
+    TRACE BuildNullTable: Adding null row to [$(TableName)] with label: $(OtherText);
+
+    [$(TableName)]:
+    LOAD
+    $(vLoadExpr)
+    AUTOGENERATE 1;
+
+END SUB;</code></pre>
+
+    <h2>Calling it</h2>
+
+    <p>
+      One line per dimension table. Run this after each dimension is fully loaded — before you build
+      any fact associations that depend on it.
+    </p>
+
+<pre><code>CALL BuildNullTable('DIM_CostCentre', '[Missing]', '%');
+CALL BuildNullTable('DIM_Customers',  '[Missing]', '%');
+CALL BuildNullTable('DIM_Projects',   '[Missing]', '%');
+CALL BuildNullTable('DIM_Accounts',   '[Missing]', '%');
+CALL BuildNullTable('DIM_Products',   '[Missing]', '%');</code></pre>
+
+    <div class="tip-box">
+      Only call this on dimension tables — never on fact or transaction tables.
+      Appending a null row to a fact table will distort your aggregations.
+    </div>
+
+    <h2>What you get in the dashboard</h2>
+
+    <p>
+      Before <code>BuildNullTable</code>, unmatched fact rows produce blank cells and break totals.
+      After, they all group neatly under <code>[Missing]</code> — visible, filterable, and honest
+      about the data quality problem rather than silently hiding it.
+    </p>
+
+    <p>
+      That's also useful analytically. A filter on <code>[Missing]</code> instantly shows you
+      the scope of the data quality issue: how many transactions are affected, which time periods,
+      which amounts. It turns an invisible problem into a measurable one.
+    </p>
+
+    <h2>Why the key prefix convention matters</h2>
+
+    <p>
+      The whole subroutine depends on being able to tell key fields apart from attribute fields
+      at script time. The <code>%</code> prefix convention — where <code>%CustomerID</code> is
+      the key and <code>CustomerName</code>, <code>Region</code> etc. are attributes — makes that
+      trivial. If your model doesn't use a consistent prefix, you'd need a different approach
+      (an explicit list of key fields, for example). But if you're not already using a key prefix
+      convention, this is a good reason to start.
+    </p>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <p>by <strong>Qlikard</strong></p>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>
