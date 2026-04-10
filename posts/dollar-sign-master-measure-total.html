@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>$(=MasterMeasure) — One Source of Truth for Totals — Qlikard</title>
+  <meta name="post-id" content="dollar-sign-master-measure-total" />
+  <meta name="post-category" content="viz" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2316a34a'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='white' text-anchor='middle'>Q</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+      <li>
+        <a class="nav-icon-link" href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener" aria-label="LinkedIn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+            <rect x="2" y="9" width="4" height="12"/>
+            <circle cx="4" cy="4" r="2"/>
+          </svg>
+        </a>
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag viz">Visualizations</span>
+    <h1 class="post-title">$(=MasterMeasure) — One Source of Truth for Totals</h1>
+    <div class="post-meta-bar">
+      <span>April 10, 2026</span>
+      <span>·</span>
+      <span>5 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      Whenever you need the grand total of a measure inside an expression — as a denominator,
+      a benchmark, a target — the standard answer is <code>SUM(TOTAL [Field])</code>. It works.
+      But it duplicates the formula. If your measure changes, you have to track down every
+      expression that hardcodes it and update each one. There's a cleaner way.
+    </p>
+
+    <h2>The problem with SUM(TOTAL ...)</h2>
+
+    <p>
+      Say your master measure <em>Sales</em> is defined as:
+    </p>
+
+<pre><code>SUM({&lt;Status={'Confirmed'}&gt;} Amount)</code></pre>
+
+    <p>
+      To show each row's share of the total, you write something like:
+    </p>
+
+<pre><code>SUM({&lt;Status={'Confirmed'}&gt;} Amount)
+/ SUM(TOTAL {&lt;Status={'Confirmed'}&gt;} Amount)</code></pre>
+
+    <p>
+      The set analysis is now duplicated — once for the row value, once for the total.
+      Add a filter condition to the master measure later and you have two places to update,
+      not one. Miss one and you've silently broken the ratio.
+    </p>
+
+    <h2>What $(=) does</h2>
+
+    <p>
+      The <code>$(=expression)</code> syntax is a dollar-sign expansion that evaluates
+      the expression once for the entire chart — without applying the current row's dimension
+      context. The result is a constant: the same number in every cell.
+    </p>
+
+    <p>
+      When the expression inside is a master measure label, Qlik evaluates that master measure's
+      full formula at the chart's total level. The dimension you're slicing by (AsciiNum, Customer,
+      Month — whatever it is) is simply not involved. You get the grand total of whatever the
+      master measure calculates.
+    </p>
+
+    <p>
+      That makes <code>$(=Sales)</code> functionally identical to
+      <code>SUM(TOTAL {&lt;Status={'Confirmed'}&gt;} Amount)</code> — but the formula lives in
+      exactly one place.
+    </p>
+
+    <h2>Proof</h2>
+
+    <p>
+      The table below has three columns against the same dimension. All three return the same
+      grand total on every row:
+    </p>
+
+    <figure class="post-figure">
+      <img src="../images/dollar-sign-master-measure-proof.png" alt="Qlik table showing three columns — Sum(Expression1), Sum(TOTAL Expression1), and $(=Expression1) — all returning 256 486 on every row" />
+      <figcaption>
+        Column 1 aggregates per row. Columns 2 and 3 both return the chart total —
+        256 486 — on every single row, through different mechanisms.
+      </figcaption>
+    </figure>
+
+    <ul>
+      <li><strong>Sum(Expression1)</strong> — the row-level value. Different per dimension value.</li>
+      <li><strong>Sum(TOTAL Expression1)</strong> — the classic approach. Ignores the dimension, returns the total. Formula is duplicated.</li>
+      <li><strong>$(=Expression1)</strong> — evaluates the master measure at chart level. Same result. Formula is not duplicated.</li>
+    </ul>
+
+    <div class="tip-box">
+      The column label in the image shows <code>'$(=Expression1)'</code> with quotes — that's just
+      to display the expression text as a literal label rather than evaluating it as the header.
+      The expression used in the column itself has no quotes.
+    </div>
+
+    <h2>How to use it</h2>
+
+    <p>
+      Replace any <code>SUM(TOTAL ...)</code> denominator with <code>$(=YourMasterMeasureName)</code>.
+      The master measure name is whatever label you gave it in the master items panel — used exactly
+      as written, case-sensitive:
+    </p>
+
+<pre><code>// Before — formula duplicated in two places
+SUM({&lt;Status={'Confirmed'}&gt;} Amount)
+/ SUM(TOTAL {&lt;Status={'Confirmed'}&gt;} Amount)
+
+// After — master measure referenced once
+SUM({&lt;Status={'Confirmed'}&gt;} Amount)
+/ $(=Sales)</code></pre>
+
+    <p>
+      Now if the definition of <em>Sales</em> changes — new set analysis, a different field,
+      an added condition — you update the master measure once and every expression using
+      <code>$(=Sales)</code> reflects it automatically.
+    </p>
+
+    <h2>Using it in arithmetic — wrap with trim()</h2>
+
+    <p>
+      When <code>$(=)</code> is embedded inside a larger expression (division, subtraction,
+      a function argument), wrap it in <code>trim()</code> to guard against whitespace that
+      can appear in the expansion:
+    </p>
+
+<pre><code>[Sales] / trim('$(=Sales)')</code></pre>
+
+    <p>
+      The quotes inside <code>trim()</code> ensure the expansion is treated as a string first,
+      then trimmed before being used numerically. Without this, edge cases can silently produce
+      null instead of a number. It's a one-character safeguard worth building into the habit.
+    </p>
+
+    <h2>One place to update</h2>
+
+    <p>
+      The practical value compounds the more you use it. A ratio expression, a share-of-total
+      color gradient, a variance calculation — each one that references <code>$(=Sales)</code>
+      instead of hardcoding the formula is one fewer place you need to touch when the business
+      logic changes.
+    </p>
+
+    <p>
+      The gradient coloring pattern from the
+      <a href="variable-function-color-gradient.html">previous post</a> is exactly this in action —
+      <code>trim('$(=[Measure])')</code> as the denominator means the color expression automatically
+      tracks whatever the master measure calculates, with no maintenance required.
+    </p>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <span class="footer-brand">by <strong>Qlikard</strong> — Rikard Larsson</span>
+    <div class="footer-links">
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision</a>
+      <a href="../about.html">About</a>
+    </div>
+    <span class="footer-copy">© 2026</span>
+  </div>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

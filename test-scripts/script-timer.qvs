@@ -1,0 +1,66 @@
+// ============================================================
+//  Script Timer Utility
+//  Qlikard | https://qlikard.com
+//
+//  Drop StartTimer / EndTimer into a utilities tab.
+//  Call Execute_Sub for automatic timing of all subroutines.
+//
+//  Output:
+//    - Reload log entries with ▶️ start markers and ⏱️ durations
+//    - TimerLog table: Section, StartTime, EndTime, Duration
+// ============================================================
+
+
+// -----------------------------------------------------------------------
+// Call at the beginning and end of every section to track load times
+// -----------------------------------------------------------------------
+
+SUB StartTimer(timerName)
+    TRACE ▶️ $(timerName);
+    LET "vStart_$(timerName)" = now();
+END SUB
+
+
+SUB EndTimer(timerName)
+    LET "vEnd_$(timerName)"      = now();
+    LET "vDuration_$(timerName)" = Interval(vEnd_$(timerName) - vStart_$(timerName), 'hh:mm:ss');
+    TRACE ⏱️ Execution time ($(timerName)): $(vDuration_$(timerName));
+
+    TimerLog:
+    LOAD
+        '$(timerName)'                AS Section,
+        '$(vStart_$(timerName))'      AS StartTime,
+        '$(vEnd_$(timerName))'        AS EndTime,
+        '$(vDuration_$(timerName))'   AS Duration
+    AUTOGENERATE 1;
+
+    DROP VARIABLES timerName, vStart_$(timerName), vEnd_$(timerName), vDuration_$(timerName);
+END SUB
+
+
+// -----------------------------------------------------------------------
+// Optional wrapper — use when script is built around named subroutines.
+// Automatically times each subroutine without any extra calls.
+// -----------------------------------------------------------------------
+
+SUB Execute_Sub(sub_routine)
+    CALL StartTimer('$(sub_routine)');
+    CALL $(sub_routine);
+    CALL EndTimer('$(sub_routine)');
+END SUB
+
+
+// -----------------------------------------------------------------------
+// Example: main execution block
+// -----------------------------------------------------------------------
+
+// CALL Execute_Sub('Variables')
+// CALL Execute_Sub('Load_FX_Valutor')
+// CALL Execute_Sub('Load_DIM_KostnadsStälle')
+// CALL Execute_Sub('Load_DIM_Projekt')
+// CALL Execute_Sub('Load_DIM_Konto')
+// CALL Execute_Sub('Load_DIM_FinancialYear')
+// CALL Execute_Sub('Load_DIM_Artiklar')
+// CALL Execute_Sub('Load_DIM_Kunder')
+// CALL Execute_Sub('Load_FCT_Faktura')
+// CALL Execute_Sub('Load_FCT_Huvudbok')

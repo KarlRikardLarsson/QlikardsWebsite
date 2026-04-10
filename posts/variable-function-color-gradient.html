@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>$1 in Variables — Dynamic Gradient Colors in Qlik Tables — Qlikard</title>
+  <meta name="post-id" content="variable-function-color-gradient" />
+  <meta name="post-category" content="viz" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2316a34a'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='white' text-anchor='middle'>Q</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+      <li>
+        <a class="nav-icon-link" href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener" aria-label="LinkedIn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+            <rect x="2" y="9" width="4" height="12"/>
+            <circle cx="4" cy="4" r="2"/>
+          </svg>
+        </a>
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag viz">Visualizations</span>
+    <h1 class="post-title">$1 in Variables — Dynamic Gradient Colors in Qlik Tables</h1>
+    <div class="post-meta-bar">
+      <span>April 10, 2026</span>
+      <span>·</span>
+      <span>6 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      Most people use Qlik variables to store static values — a date, a flag, a reusable expression.
+      But variables support parameters through <code>$1</code>, <code>$2</code>, and so on, which
+      turns them into something much more useful: functions you can call with arguments. Once you
+      understand that, a whole set of patterns opens up. This post shows one of my favourites —
+      a gradient background color driven entirely by each row's share of the total.
+    </p>
+
+    <h2>How $1 makes a variable into a function</h2>
+
+    <p>
+      When you define a variable using <code>$1</code> as a placeholder, Qlik substitutes it with
+      whatever argument you pass at call time. Take this simple example:
+    </p>
+
+<pre><code>SET sum = 'rangesum($1, $2)';</code></pre>
+
+    <p>
+      Calling <code>$(sum(1,2))</code> expands to <code>rangesum(1,2)</code> — which evaluates
+      to <code>3</code>. The variable becomes a template. The <code>$1</code> and <code>$2</code>
+      are just positional slots that get filled in at the point of use.
+    </p>
+
+    <p>
+      This works with any expression, not just functions. You can build strings, conditions,
+      set analysis fragments — anything that benefits from being parameterised. The call syntax
+      is always the same: <code>$(variableName(arg1, arg2, ...))</code>.
+    </p>
+
+    <h2>A color variable</h2>
+
+    <p>
+      Qlik's <code>ARGB()</code> function takes four arguments: alpha (opacity), red, green, blue.
+      Alpha runs from 0 (fully transparent) to 255 (fully opaque). If we fix the RGB values and
+      make the alpha a parameter, we have a variable that produces the same color at any opacity
+      we want:
+    </p>
+
+<pre><code>SET c_color_table = 'ARGB($1, 52, 143, 173)';</code></pre>
+
+    <p>
+      Now <code>$(c_color_table(255))</code> gives full-opacity teal.
+      <code>$(c_color_table(80))</code> gives the same teal at roughly a third opacity.
+      The color is fixed — only the alpha changes.
+    </p>
+
+    <h2>Wiring it to a measure</h2>
+
+    <p>
+      The goal is to make the opacity proportional to a row's share of the total — so rows that
+      contribute more get a deeper color. The expression that does this goes into the
+      <strong>Background color</strong> field of your table column:
+    </p>
+
+<pre><code>$(c_color_table((([Measure] / trim('$(=[Measure])')) * 10) * 40))</code></pre>
+
+    <p>
+      There are two parts worth unpacking here. First, the ratio:
+    </p>
+
+    <ul>
+      <li><code>[Measure]</code> — the value for the current row</li>
+      <li><code>$(=[Measure])</code> — the overall total of that measure</li>
+    </ul>
+
+    <p>
+      Dividing them gives a number between 0 and 1 — the row's share of the total.
+      The <code>trim()</code> wrapper handles any whitespace that can appear in the expansion.
+    </p>
+
+    <div class="tip-box">
+      The <code>$(=expression)</code> syntax is doing something specific here — it's evaluating
+      the master measure expression to return an aggregated total rather than the row-level value.
+      I'll cover exactly how <code>$(=)</code> works in front of a master measure in a
+      <a href="dollar-sign-master-measure-total.html">separate post</a>.
+    </div>
+
+    <!-- TODO: Add a screenshot here showing where to enter the background color expression in Qlik Sense (column formatting → Background color field) -->
+
+    <h2>How the math produces a gradient</h2>
+
+    <p>
+      Take a row that accounts for <strong>50% of total sales</strong>. Stepping through the expression:
+    </p>
+
+    <ol>
+      <li><code>0.50</code> — the proportion (50%)</li>
+      <li><code>0.50 × 10 = 5</code> — scaled up to a 0–10 range</li>
+      <li><code>5 × 40 = 200</code> — the alpha value passed to ARGB</li>
+    </ol>
+
+    <p>
+      That row gets a background of <code>ARGB(200, 52, 143, 173)</code> — a fairly saturated
+      teal. A row at 25% would produce alpha 100, noticeably lighter. A row at 100% would produce
+      400, which ARGB clamps to 255 — full opacity.
+    </p>
+
+    <h2>Controlling sensitivity with the multiplier</h2>
+
+    <p>
+      The <code>× 40</code> at the end is the lever that controls how the gradient spreads across
+      your data. A higher multiplier pushes values to full opacity faster:
+    </p>
+
+    <ul>
+      <li>
+        <strong><code>× 40</code></strong> — a row at 64% of total already reaches alpha 256
+        (capped at 255). The top half of your values will look nearly identical. Good when you
+        want high-contributing rows to stand out clearly against a pale field.
+      </li>
+      <li>
+        <strong><code>× 20</code></strong> — even the top row at 100% only reaches alpha 200.
+        The gradient is spread more evenly across all values, giving a cleaner visual spread
+        when values are close together.
+      </li>
+    </ul>
+
+    <p>
+      There's no universally correct value — it depends on the distribution of your data and
+      how much contrast you want. Start with <code>× 40</code> and adjust based on what your
+      actual numbers look like.
+    </p>
+
+    <div class="tip-box">
+      The <code>× 10</code> in the middle is just a scaling step to give yourself a more
+      readable working range before applying the final multiplier. You could collapse both
+      into one multiplier (<code>× 400</code> instead of <code>× 10 × 40</code>), but keeping
+      them separate makes it easier to reason about what you're changing.
+    </div>
+
+    <h2>The result</h2>
+
+    <p>
+      Applied to a straight table with the background color expression on the measure column,
+      you get a color that deepens with each row's contribution — no conditional coloring rules,
+      no manual thresholds, just a single expression that adapts to whatever data is loaded:
+    </p>
+
+    <figure class="post-figure">
+      <img src="../images/variable-color-gradient-result.png" alt="Qlik table showing gradient background colors — darker rows have higher values relative to the total" />
+      <figcaption>Each row's background opacity is proportional to its share of the total. The top row (24.28 of 61.88) gets the deepest color.</figcaption>
+    </figure>
+
+    <p>
+      The value <code>24.28</code> is roughly 39% of <code>61.88</code>, giving an alpha of about
+      157. <code>14.89</code> is around 24%, giving alpha 96. The visual difference is immediate
+      and requires zero manual configuration to maintain — add a new dimension value and it
+      automatically gets the right shade.
+    </p>
+
+    <h2>The complete setup</h2>
+
+    <p>
+      To use this in your own app:
+    </p>
+
+    <ol>
+      <li>Create a variable: <code>SET c_color_table = 'ARGB($1, 52, 143, 173)';</code></li>
+      <li>
+        In your table column, open the measure's <strong>Background color</strong> expression field
+        and enter:<br>
+        <code>$(c_color_table((([YourMeasure] / trim('$(=[YourMeasure])')) * 10) * 40))</code>
+      </li>
+      <li>Swap out the RGB values to match your app's color palette.</li>
+      <li>Adjust the final multiplier until the gradient feels right for your data distribution.</li>
+    </ol>
+
+    <p>
+      The variable lives in one place — change the RGB once and every table using
+      <code>c_color_table</code> updates automatically. If you later want a warmer color, you
+      change three numbers instead of hunting down expressions across every sheet.
+    </p>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <span class="footer-brand">by <strong>Qlikard</strong> — Rikard Larsson</span>
+    <div class="footer-links">
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision</a>
+      <a href="../about.html">About</a>
+    </div>
+    <span class="footer-copy">© 2026</span>
+  </div>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

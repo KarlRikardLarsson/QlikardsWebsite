@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Does Pre-Sorting Speed Up GROUP BY in Qlik? — Qlikard</title>
+  <meta name="post-id" content="orderby-groupby-benchmark" />
+  <meta name="post-category" content="scripts" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2316a34a'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='white' text-anchor='middle'>Q</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+      <li>
+        <a class="nav-icon-link" href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener" aria-label="LinkedIn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+            <rect x="2" y="9" width="4" height="12"/>
+            <circle cx="4" cy="4" r="2"/>
+          </svg>
+        </a>
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag scripts">Scripts</span>
+    <h1 class="post-title">Does Pre-Sorting Speed Up GROUP BY in Qlik?</h1>
+    <div class="post-meta-bar">
+      <span>April 10, 2026</span>
+      <span>·</span>
+      <span>7 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      If you aggregate large RESIDENT tables with <code>GROUP BY</code>, you might have wondered
+      whether the order of the data matters. Does pre-sorting with <code>ORDER BY</code> before
+      grouping actually help? I ran a proper benchmark to find out — and the answer is consistently yes,
+      though how much depends heavily on the granularity of what you're grouping.
+    </p>
+
+    <h2>The two approaches</h2>
+
+    <p>
+      The standard way to aggregate a RESIDENT table is straightforward — one pass, let Qlik figure
+      out the grouping internally:
+    </p>
+
+<pre><code>// Approach A — GROUP BY only
+AggResult:
+LOAD
+    Dimension1,
+    Sum(Amount) AS TotalAmount
+RESIDENT Transactions
+GROUP BY Dimension1;
+
+DROP TABLE AggResult;</code></pre>
+
+    <p>
+      The alternative is to first sort the source table by the grouping key, then aggregate from
+      the sorted copy:
+    </p>
+
+<pre><code>// Approach B — Pre-sort, then GROUP BY
+Tmp_Sorted:
+LOAD
+    Dimension1,
+    Amount
+RESIDENT Transactions
+ORDER BY Dimension1;
+
+AggResult:
+LOAD
+    Dimension1,
+    Sum(Amount) AS TotalAmount
+RESIDENT Tmp_Sorted
+GROUP BY Dimension1;
+
+DROP TABLE AggResult;
+DROP TABLE Tmp_Sorted;</code></pre>
+
+    <p>
+      Approach B does more work on the surface — it creates an intermediate table and runs two passes.
+      But the hypothesis is that a sorted source makes the GROUP BY phase significantly cheaper,
+      more than offsetting the sorting cost.
+    </p>
+
+    <h2>Test setup</h2>
+
+    <p>
+      All tests ran on <strong>Qlik Cloud</strong> using <strong>RESIDENT loads</strong> against a
+      generated table of <strong>5 million rows</strong>. Each scenario was run five times and results
+      are the average across all iterations.
+    </p>
+
+    <p>
+      The base table was generated with four dimensions of varying cardinality:
+    </p>
+
+<pre><code>Transactions:
+LOAD
+    RecNo()                             AS TransID,
+    Chr(65 + Mod(RecNo()-1, 26))        AS Dimension1,  // ~26 distinct values
+    Chr(65 + Mod(RecNo()-1, 26))
+      & Chr(65 + Mod(Floor((RecNo()-1)/26), 26))        AS Dimension2,  // ~676 combinations
+    Hash128(RecNo())                    AS Dimension4,  // ~unique per row
+    Round(Rand() * 10000, 0.01)         AS Amount
+AutoGenerate 5000000;</code></pre>
+
+    <p>
+      Four scenarios were tested, each with both approaches:
+    </p>
+
+    <ul>
+      <li><strong>1 — Low granularity, single field:</strong> GROUP BY Dimension1 (~26 distinct values)</li>
+      <li><strong>2 — High granularity, single field:</strong> GROUP BY Dimension4 (~unique per row via Hash128)</li>
+      <li><strong>3 — Low + Low, two fields:</strong> GROUP BY Dimension1, Dimension2 (~676 combinations)</li>
+      <li><strong>4 — Low + High, two fields:</strong> GROUP BY Dimension1, Dimension4</li>
+    </ul>
+
+    <p>
+      Timing was captured using a logging subroutine that records start and end timestamps
+      per test iteration:
+    </p>
+
+<pre><code>SUB RunTests
+
+    // ── Scenario 1A — Low gran, GROUP BY only ──────────────
+    LET vStart = Timestamp(Now(), 'hh:mm:ss');
+    Agg: LOAD Dimension1, Sum(Amount) AS Total RESIDENT Transactions GROUP BY Dimension1;
+    DROP TABLE Agg;
+    CALL sLog('1A Low gran — GROUP BY only', '$(vStart)', Timestamp(Now(), 'hh:mm:ss'));
+
+    // ── Scenario 1B — Low gran, Pre-sort + GROUP BY ────────
+    LET vStart = Timestamp(Now(), 'hh:mm:ss');
+    Tmp_Sorted: LOAD Dimension1, Amount RESIDENT Transactions ORDER BY Dimension1;
+    Agg: LOAD Dimension1, Sum(Amount) AS Total RESIDENT Tmp_Sorted GROUP BY Dimension1;
+    DROP TABLE Agg; DROP TABLE Tmp_Sorted;
+    CALL sLog('1B Low gran — Pre-sort + GROUP BY', '$(vStart)', Timestamp(Now(), 'hh:mm:ss'));
+
+    // ── Scenario 2A — High gran, GROUP BY only ─────────────
+    LET vStart = Timestamp(Now(), 'hh:mm:ss');
+    Agg: LOAD Dimension4, Sum(Amount) AS Total RESIDENT Transactions GROUP BY Dimension4;
+    DROP TABLE Agg;
+    CALL sLog('2A High gran — GROUP BY only', '$(vStart)', Timestamp(Now(), 'hh:mm:ss'));
+
+    // ── Scenario 2B — High gran, Pre-sort + GROUP BY ───────
+    LET vStart = Timestamp(Now(), 'hh:mm:ss');
+    Tmp_Sorted: LOAD Dimension4, Amount RESIDENT Transactions ORDER BY Dimension4;
+    Agg: LOAD Dimension4, Sum(Amount) AS Total RESIDENT Tmp_Sorted GROUP BY Dimension4;
+    DROP TABLE Agg; DROP TABLE Tmp_Sorted;
+    CALL sLog('2B High gran — Pre-sort + GROUP BY', '$(vStart)', Timestamp(Now(), 'hh:mm:ss'));
+
+    // ── Scenarios 3 and 4 follow the same pattern ──────────
+
+END SUB</code></pre>
+
+    <h2>The results</h2>
+
+    <p>
+      Pre-sorting outperformed GROUP BY only in every single scenario. The margin varied,
+      but the direction was always the same:
+    </p>
+
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Scenario</th>
+          <th>GROUP BY only</th>
+          <th>Pre-sort + GROUP BY</th>
+          <th>Difference</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Low granularity, single field</td>
+          <td class="ok">0:00:07</td>
+          <td class="good">0:00:05</td>
+          <td>−2s &nbsp;(29% faster)</td>
+        </tr>
+        <tr>
+          <td>High granularity, single field</td>
+          <td class="bad">0:00:32</td>
+          <td class="ok">0:00:26</td>
+          <td>−6s &nbsp;(19% faster)</td>
+        </tr>
+        <tr>
+          <td>Low + Low, two fields</td>
+          <td class="ok">0:00:09</td>
+          <td class="good">0:00:08</td>
+          <td>−1s &nbsp;(11% faster)</td>
+        </tr>
+        <tr>
+          <td>Low + High, two fields</td>
+          <td class="bad">0:00:33</td>
+          <td class="ok">0:00:26</td>
+          <td>−7s &nbsp;(21% faster)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="tip-box">
+      These are the combined times for the full pipeline — including the ORDER BY pass in approach B.
+      The pre-sort approach does more total work and still wins.
+    </div>
+
+    <h2>Why does it help?</h2>
+
+    <p>
+      When Qlik processes a <code>GROUP BY</code> without any prior sorting, it has no guarantees
+      about where matching keys appear in the data. It builds a <strong>hash table</strong> of partial
+      aggregates — every time it encounters a row, it hashes the grouping key, finds the right bucket,
+      and accumulates the value there. For 5 million rows, that's 5 million hash operations and
+      5 million bucket lookups.
+    </p>
+
+    <p>
+      If the data is already sorted by the grouping key, a completely different strategy becomes
+      possible: <strong>sequential processing</strong>. Qlik only needs to track the current group.
+      When the key changes, the current group is finalized and a new one starts. No hash table,
+      no random memory access, no bucket collisions — just a linear scan with minimal state.
+    </p>
+
+    <p>
+      This is why the absolute gains are largest on <em>high-granularity</em> fields, but the
+      <em>proportional</em> gain is actually largest on <em>low-granularity</em> fields. With
+      only 26 distinct values, the hash table is tiny and collisions are frequent — every row
+      almost certainly lands in a bucket that's already been touched, making cache performance poor.
+      With sorted data, you make at most 26 group transitions across 5 million rows. The difference
+      in access pattern is dramatic even if the absolute numbers are smaller.
+    </p>
+
+    <h2>The two-field scenarios</h2>
+
+    <p>
+      The multi-field results follow the same pattern. <em>Low + Low</em> is faster across the board
+      because 676 distinct combinations is still a manageable hash table. <em>Low + High</em> is the
+      worst case — the second field is effectively unique, so the combined key is nearly unique per row,
+      and the GROUP BY is doing almost no real aggregation. You're paying the full cost of a hash
+      table with ~5 million entries to produce ~5 million output rows.
+    </p>
+
+    <p>
+      Pre-sorting by both fields (<code>ORDER BY Dimension1, Dimension4</code>) converts that into
+      a linear scan and saves 7 seconds — the largest absolute gain in the test.
+    </p>
+
+    <div class="tip-box">
+      If your GROUP BY produces nearly as many rows as the source table, that's a signal your
+      grouping key has very high cardinality. Pre-sorting will give you the biggest gains here.
+    </div>
+
+    <h2>The cost of the extra pass</h2>
+
+    <p>
+      Approach B runs an additional RESIDENT load just to sort — that's not free. The fact that
+      it's still faster overall means the sort cost is being more than recovered in the GROUP BY phase.
+      But there's a memory implication: you briefly hold <em>two</em> copies of the table in RAM —
+      the original and the sorted copy — before the DROP cleans one up.
+    </p>
+
+    <p>
+      Because <code>Tmp_Sorted</code> only loads the fields needed for the aggregation — not every
+      column in the source table — its memory footprint is smaller than the original. On a wide
+      transaction table with many fields, that difference can be significant. Even so, on very large
+      datasets where memory is tight, the extra table is still a cost. Always <code>DROP</code> it
+      as soon as the aggregation is done.
+    </p>
+
+    <h2>When to use it</h2>
+
+    <ul>
+      <li>
+        <strong>High-cardinality GROUP BY keys</strong> — the hash table pressure is worst here,
+        and sorting gives you the cleanest win.
+      </li>
+      <li>
+        <strong>Multi-field GROUP BY with at least one high-cardinality field</strong> — same reason,
+        larger combined key space.
+      </li>
+      <li>
+        <strong>Recurring aggregations</strong> — if the same RESIDENT table is grouped by several
+        different combinations in sequence, consider sorting once by the most selective field first
+        and reusing the sorted table.
+      </li>
+    </ul>
+
+    <p>
+      For low-granularity aggregations on smaller tables, the gains are real but small enough that
+      the added code complexity may not be worth it. The 2-second saving on a 7-second operation
+      is 29% — meaningful in a loop or a nightly job, less so in a one-off reload.
+    </p>
+
+    <p>
+      The pattern itself is simple enough that there's rarely a reason <em>not</em> to use it
+      when you know your GROUP BY key has high cardinality. Sort, aggregate, drop the sorted table.
+      Three lines of overhead for consistent gains across every scenario tested.
+    </p>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <span class="footer-brand">by <strong>Qlikard</strong> — Rikard Larsson</span>
+    <div class="footer-links">
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision</a>
+      <a href="../about.html">About</a>
+    </div>
+    <span class="footer-copy">© 2026</span>
+  </div>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

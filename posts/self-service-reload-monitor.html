@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Monitoring Self-Service Reloads with Qlik Automate — Qlikard</title>
+  <meta name="post-id" content="self-service-reload-monitor" />
+  <meta name="post-category" content="automate" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2316a34a'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='white' text-anchor='middle'>Q</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+      <li>
+        <a class="nav-icon-link" href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener" aria-label="LinkedIn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+            <rect x="2" y="9" width="4" height="12"/>
+            <circle cx="4" cy="4" r="2"/>
+          </svg>
+        </a>
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag automate">Qlik Automate</span>
+    <h1 class="post-title">Monitoring Self-Service Reloads with Qlik Automate</h1>
+    <div class="post-meta-bar">
+      <span>April 10, 2026</span>
+      <span>·</span>
+      <span>8 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      Self-service reload scheduling in Qlik Cloud lets users own their own reload cadence without
+      going through a central automation. That's the upside. The downside is monitoring: when a
+      self-service reload fails, the built-in alerting has real limitations — constrained channels,
+      limited control over who gets notified, and no native way to flag apps that simply haven't
+      been updated in too long. This automation fills that gap.
+    </p>
+
+    <h2>The problem with built-in monitoring</h2>
+
+    <p>
+      Qlik Cloud does have failure notifications for reloads, but in practice they tend to fall short
+      for managed environments:
+    </p>
+
+    <ul>
+      <li>Notifications go to the app owner — not necessarily the team or the person on call</li>
+      <li>Channel options are limited; routing alerts to a shared inbox or ticketing system requires workarounds</li>
+      <li>There's no tolerance-based alerting — an app that last reloaded successfully three weeks ago looks fine to Qlik, even if it should be running daily</li>
+      <li>No consolidated view — failures are per-app events, not a space-level health summary</li>
+    </ul>
+
+    <p>
+      The automation below solves all of these. It runs on a schedule, scans a configured space,
+      checks every app for two conditions (failed reload, or stale beyond a tolerance threshold),
+      and sends a single formatted email listing everything that needs attention.
+    </p>
+
+    <h2>What it does</h2>
+
+    <p>
+      On each run, the automation:
+    </p>
+
+    <ol>
+      <li>Lists all apps in the configured space(s)</li>
+      <li>For each app, fetches the last reload record via the Qlik Cloud API</li>
+      <li>
+        Flags the app if either condition is true:
+        <ul>
+          <li>The last reload ended in a failure state</li>
+          <li>The app hasn't reloaded within the tolerance window (default: 7 days), even if the last reload was successful</li>
+        </ul>
+      </li>
+      <li>Skips apps currently in progress — no false alarms on running reloads</li>
+      <li>Collects all flagged apps and sends a single HTML email with a summary table</li>
+      <li>Updates the run title with a health summary: <em>Applications 15: (12 successful, 1 reloading, 2 failed)</em></li>
+      <li>Sends a recovery email if the previous automation run itself had failed — so you know when things are healthy again</li>
+    </ol>
+
+    <h2>The logic walkthrough</h2>
+
+    <p>
+      The automation has 67 blocks. Most of them are email HTML construction — the actual decision
+      logic is straightforward. Here's the meaningful flow:
+    </p>
+
+    <h3>App loop</h3>
+
+    <p>
+      After fetching the app list, it loops over every app in the space. For each one:
+    </p>
+
+<pre><code>Get app info  →  Get space info
+  ↓
+[If onlyManagedSpaces = 1 and space is not managed] → skip
+
+Get last reload record  →  Calculate secondsSinceLastReload
+
+[If last reload status = succeeded OR no prior reload]
+  ↓ Yes
+  [If secondsSinceLastReload &gt; tolerance threshold]
+    ↓ Yes  →  flag as stale, status = "Not been updated the last N day(s)"
+    ↓ No   →  count as successful, move on
+
+[If last reload status = failed]
+  ↓
+  [If currently reloading?]
+    ↓ Yes  →  count as reloading, move on
+    ↓ No   →  flag as failed, status = reload failure state from API</code></pre>
+
+    <p>
+      Every flagged app — whether failed or stale — gets added to <code>FailedAppsList</code>.
+      Counters for successful, reloading, and failed apps are tracked throughout the loop and
+      written into the run title at the end.
+    </p>
+
+    <h3>Email build</h3>
+
+    <p>
+      Once the loop finishes, if <code>FailedAppsList</code> is not empty, the email is assembled.
+      The table has four columns:
+    </p>
+
+    <table class="results-table">
+      <thead>
+        <tr><th>Column</th><th>Source</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Name</strong></td><td>App name from the Qlik Cloud item API</td></tr>
+        <tr><td><strong>Status</strong></td><td>Failure state from the reload API, or "Not been updated the last N day(s)"</td></tr>
+        <tr><td><strong>Last Reload</strong></td><td>Timestamp of last completed reload, or "Never been reloaded"</td></tr>
+        <tr><td><strong>Details</strong></td><td>Direct link to the app's reload history page</td></tr>
+      </tbody>
+    </table>
+
+    <p>
+      The Details link goes straight to <code>{tenantHostname}/item/{appId}/history</code> —
+      one click from the email to the reload log for that specific app.
+    </p>
+
+    <h3>Recovery email</h3>
+
+    <p>
+      Before the main loop runs, the automation checks whether its own previous run failed.
+      If it did — and the current run is succeeding — it sends a separate recovery email.
+      This matters because the automation itself can fail (API errors, connector issues),
+      and you want to know when it's back online, not just when it detects problems.
+    </p>
+
+    <h2>What the output looks like</h2>
+
+    <p>
+      Here's the automation's run output after checking two spaces. Each app is listed with its
+      history status and hours since last reload. Apps with no reload history show a very large
+      number — effectively "never". At the bottom, the message block confirms that the email
+      notification has been sent.
+    </p>
+
+    <figure class="post-figure">
+      <img src="../images/reload-monitor-output.png" alt="Automation run output showing reload history per space — Finance and Sales in a dev space, plus multiple monitoring apps. Sales shows FAILED, Finance shows no history. Bottom message confirms email sent." />
+      <figcaption>
+        Two spaces checked in one run. Sales failed, Finance has never reloaded.
+        Both trigger the notification. The Monitoring space apps all succeeded — no email for those.
+      </figcaption>
+    </figure>
+
+    <h2>Configuration</h2>
+
+    <p>
+      There are four variables to set at the top of the automation before the loop:
+    </p>
+
+    <table class="results-table">
+      <thead>
+        <tr><th>Variable</th><th>What to set</th><th>Default</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>SpaceIDtoCheck</code></td>
+          <td>List of space IDs to monitor. Add one item per space.</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td><code>Customer</code></td>
+          <td>Your organisation name — used in the email subject and greeting.</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td><code>defaultTolerance</code></td>
+          <td>Days before a successful-but-stale app is flagged.</td>
+          <td>7</td>
+        </tr>
+        <tr>
+          <td><code>EmailRecipientList</code></td>
+          <td>List of email addresses to notify. Add one item per recipient.</td>
+          <td>—</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>
+      There's also <code>onlyManagedSpaces</code> (set to <code>1</code> to restrict monitoring
+      to managed spaces only, default <code>0</code> which covers all spaces).
+    </p>
+
+    <div class="tip-box">
+      To find a space ID: open the space in Qlik Cloud and copy the ID from the URL —
+      it's the long alphanumeric string after <code>/spaces/</code>.
+    </div>
+
+    <h2>Setting up the Mail connector</h2>
+
+    <p>
+      The automation uses two <strong>Mail — Send Mail</strong> blocks (one for failure alerts,
+      one for recovery). Both need a configured Mail connector in your Qlik Automate environment.
+      If you don't have one set up yet:
+    </p>
+
+    <ol>
+      <li>Go to <strong>Automate → Connectors</strong> and add a Mail connector</li>
+      <li>Configure your SMTP settings or use the built-in Qlik mail service</li>
+      <li>Open each Send Mail block in the automation and select your connector</li>
+    </ol>
+
+    <h2>Scheduling</h2>
+
+    <p>
+      The automation is designed to run on a schedule — not as a webhook. A daily run at the
+      start of business works well for most cases: you get a morning email listing anything
+      that failed overnight or has gone stale.
+    </p>
+
+    <p>
+      For more critical spaces you can run it more frequently. Since it only sends an email when
+      it finds something wrong, a higher frequency doesn't generate noise — runs that find nothing
+      finish silently.
+    </p>
+
+    <div class="tip-box">
+      The run title is updated on every execution regardless of whether an email is sent —
+      "Applications 15: (15 successful, 0 failed)" tells you things are clean without
+      filling an inbox.
+    </div>
+
+    <h2>Import and use</h2>
+
+    <p>
+      The automation is available as an importable JSON file. In Qlik Automate:
+    </p>
+
+    <ol>
+      <li>Open <strong>Automate</strong> and create a new, empty automation</li>
+      <li>Right-click anywhere on the empty canvas → <strong>Upload workspace</strong></li>
+      <li>Select the JSON file below</li>
+      <li>Set the four configuration variables</li>
+      <li>Wire up the Mail connector in both Send Mail blocks</li>
+      <li>Add a schedule trigger and activate</li>
+    </ol>
+
+    <p>
+      <a href="../automations/self-service-reload-monitor.json" download><strong>↓ Download automation JSON</strong></a>
+    </p>
+
+    <p>
+      The automation works as-is and is intentionally left without hardcoded tenant details —
+      it resolves the tenant hostname dynamically via the <em>Get Current Tenant Info</em> block,
+      so it works in any Qlik Cloud environment without modification.
+    </p>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <span class="footer-brand">by <strong>Qlikard</strong> — Rikard Larsson</span>
+    <div class="footer-links">
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision</a>
+      <a href="../about.html">About</a>
+    </div>
+    <span class="footer-copy">© 2026</span>
+  </div>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

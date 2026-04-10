@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Script Timers — Know Exactly How Long Every Section Takes — Qlikard</title>
+  <meta name="post-id" content="script-timer-subroutine" />
+  <meta name="post-category" content="scripts" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2316a34a'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='white' text-anchor='middle'>Q</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+      <li>
+        <a class="nav-icon-link" href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener" aria-label="LinkedIn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+            <rect x="2" y="9" width="4" height="12"/>
+            <circle cx="4" cy="4" r="2"/>
+          </svg>
+        </a>
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag scripts">Scripts</span>
+    <h1 class="post-title">Script Timers — Know Exactly How Long Every Section Takes</h1>
+    <div class="post-meta-bar">
+      <span>April 10, 2026</span>
+      <span>·</span>
+      <span>6 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      A reload is slow. You open the reload log and see a wall of output — but nothing tells you
+      which section is the culprit. You start adding manual <code>TRACE</code> statements with
+      <code>now()</code>, doing mental arithmetic between timestamps. There's a much better way,
+      and it's two subroutines you write once and never think about again.
+    </p>
+
+    <h2>StartTimer and EndTimer</h2>
+
+    <p>
+      Drop these two subs at the top of your script, or in a dedicated utilities tab:
+    </p>
+
+<pre><code>// -----------------------------------------------------------------------
+// Call at the beginning and end of every section to track load times
+// -----------------------------------------------------------------------
+
+SUB StartTimer(timerName)
+    TRACE ▶️ $(timerName);
+    LET "vStart_$(timerName)" = now();
+END SUB
+
+SUB EndTimer(timerName)
+    LET "vEnd_$(timerName)"      = now();
+    LET "vDuration_$(timerName)" = Interval(vEnd_$(timerName) - vStart_$(timerName), 'hh:mm:ss');
+    TRACE ⏱️ Execution time ($(timerName)): $(vDuration_$(timerName));
+
+    TimerLog:
+    LOAD
+        '$(timerName)'                AS Section,
+        '$(vStart_$(timerName))'      AS StartTime,
+        '$(vEnd_$(timerName))'        AS EndTime,
+        '$(vDuration_$(timerName))'   AS Duration
+    AUTOGENERATE 1;
+
+    DROP VARIABLES timerName, vStart_$(timerName), vEnd_$(timerName), vDuration_$(timerName);
+END SUB</code></pre>
+
+    <p>
+      Basic usage — wrap any section with a matching pair of calls:
+    </p>
+
+<pre><code>CALL StartTimer('Load_Transactions');
+
+Transactions:
+LOAD ...
+FROM [...] (qvd);
+
+CALL EndTimer('Load_Transactions');</code></pre>
+
+    <p>
+      The reload log immediately becomes readable:
+    </p>
+
+<pre><code>▶️ Load_Transactions
+⏱️ Execution time (Load_Transactions): 00:00:14</code></pre>
+
+    <h2>How it works</h2>
+
+    <p>
+      A few parts of this are worth understanding so you can adapt it.
+    </p>
+
+    <p>
+      <strong>Dynamic variable names.</strong> The double-quote syntax
+      <code>LET "vStart_$(timerName)" = now()</code> creates a variable whose <em>name</em>
+      is built from the parameter. If you call <code>StartTimer('Transactions')</code>, it creates
+      a variable literally named <code>vStart_Transactions</code>. This means multiple timers can
+      run without colliding — each one has its own uniquely named start and end variable.
+    </p>
+
+    <p>
+      <strong>Interval() for readable output.</strong> Subtracting two <code>now()</code> values
+      gives a fractional day number. <code>Interval(difference, 'hh:mm:ss')</code> formats that
+      into a human-readable duration. A section that takes 90 seconds shows as
+      <code>00:01:30</code>, not <code>0.001041667</code>.
+    </p>
+
+    <p>
+      <strong>TimerLog auto-concatenation.</strong> Every call to <code>EndTimer</code> loads
+      one row into a table named <code>TimerLog</code>. Because the table name is the same each
+      time, Qlik auto-concatenates the rows — no explicit <code>CONCATENATE</code> needed.
+      By the end of the reload, <code>TimerLog</code> holds a complete timing breakdown
+      of every section that ran.
+    </p>
+
+    <p>
+      <strong>DROP VARIABLES.</strong> After logging, all four variables are dropped — the timer
+      name and the three timestamps. This keeps the variable list clean and prevents stale values
+      from interfering if you reuse the same section name across reloads.
+    </p>
+
+    <h2>The Execute_Sub upgrade</h2>
+
+    <p>
+      If your script is built around subroutines — each data domain in its own <code>SUB</code> —
+      there's a wrapper that makes timing automatic with zero extra effort per section:
+    </p>
+
+<pre><code>SUB Execute_Sub(sub_routine)
+    CALL StartTimer('$(sub_routine)');
+    CALL $(sub_routine);
+    CALL EndTimer('$(sub_routine)');
+END SUB</code></pre>
+
+    <p>
+      <code>CALL $(sub_routine)</code> is a dynamic call — it resolves the variable to the actual
+      subroutine name at runtime. Wrap any subroutine name in <code>Execute_Sub</code> and it
+      gets timed automatically. Your main execution block becomes a single clean list:
+    </p>
+
+<pre><code>// ================================================================================
+// MAIN EXECUTION
+// ================================================================================
+
+CALL Execute_Sub('Variables')
+CALL Execute_Sub('Load_FX_Valutor')
+CALL Execute_Sub('Load_DIM_KostnadsStälle')
+CALL Execute_Sub('Load_DIM_Projekt')
+CALL Execute_Sub('Load_DIM_Konto')
+CALL Execute_Sub('Load_DIM_FinancialYear')
+CALL Execute_Sub('Load_DIM_Artiklar')
+CALL Execute_Sub('Load_DIM_Kunder')
+CALL Execute_Sub('Load_FCT_Faktura')
+CALL Execute_Sub('Load_FCT_Huvudbok')</code></pre>
+
+    <p>
+      Every section is automatically timed. Add a new subroutine and it gets timing for free —
+      just add one <code>CALL Execute_Sub</code> line. Nothing else to remember.
+    </p>
+
+    <div class="tip-box">
+      The order in this block is your explicit load order. It doubles as documentation — anyone
+      reading the script immediately sees the full sequence and can match it against the reload log.
+    </div>
+
+    <h2>What you get</h2>
+
+    <p>
+      By the end of every reload, you have two outputs:
+    </p>
+
+    <ul>
+      <li>
+        <strong>The reload log</strong> — each section stamped with a start marker (▶️) and a
+        duration (⏱️). Scannable at a glance without counting timestamps or doing arithmetic.
+      </li>
+      <li>
+        <strong>The TimerLog table</strong> — a proper in-model table with Section, StartTime,
+        EndTime, and Duration columns. Build a monitoring sheet from it and you can compare
+        reload performance across runs, spot regressions, and show stakeholders exactly where
+        time is being spent.
+      </li>
+    </ul>
+
+    <p>
+      The <code>TimerLog</code> table persists in the app's data model after each reload, which
+      means you can slice it, sort it, and visualize it like any other table. A simple bar chart
+      of Duration by Section immediately shows where the reload budget is going.
+    </p>
+
+    <div class="tip-box">
+      If you reload on a schedule and want to track timing trends over time, concatenate TimerLog
+      into a QVD at the end of each reload. You can then load historical timing data and compare
+      this week's section durations against last week's.
+    </div>
+
+    <h2>The full script</h2>
+
+    <p>
+      Both subroutines together, ready to paste into a utilities tab:
+    </p>
+
+<pre><code>// -----------------------------------------------------------------------
+// Call at the beginning and end of every section to track load times
+// -----------------------------------------------------------------------
+
+SUB StartTimer(timerName)
+    TRACE ▶️ $(timerName);
+    LET "vStart_$(timerName)" = now();
+END SUB
+
+SUB EndTimer(timerName)
+    LET "vEnd_$(timerName)"      = now();
+    LET "vDuration_$(timerName)" = Interval(vEnd_$(timerName) - vStart_$(timerName), 'hh:mm:ss');
+    TRACE ⏱️ Execution time ($(timerName)): $(vDuration_$(timerName));
+
+    TimerLog:
+    LOAD
+        '$(timerName)'                AS Section,
+        '$(vStart_$(timerName))'      AS StartTime,
+        '$(vEnd_$(timerName))'        AS EndTime,
+        '$(vDuration_$(timerName))'   AS Duration
+    AUTOGENERATE 1;
+
+    DROP VARIABLES timerName, vStart_$(timerName), vEnd_$(timerName), vDuration_$(timerName);
+END SUB
+
+// Optional — for subroutine-based scripts
+SUB Execute_Sub(sub_routine)
+    CALL StartTimer('$(sub_routine)');
+    CALL $(sub_routine);
+    CALL EndTimer('$(sub_routine)');
+END SUB</code></pre>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <span class="footer-brand">by <strong>Qlikard</strong> — Rikard Larsson</span>
+    <div class="footer-links">
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision</a>
+      <a href="../about.html">About</a>
+    </div>
+    <span class="footer-copy">© 2026</span>
+  </div>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

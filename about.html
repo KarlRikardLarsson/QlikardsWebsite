@@ -4,7 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>About — Qlikard</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🟢</text></svg>" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="About — Qlikard" />
+  <meta property="og:description" content="Rikard Larsson — BI consultant at Kolibri Vision, writing about Qlik tips and tricks." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2316a34a'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='white' text-anchor='middle'>Q</text></svg>" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
@@ -15,6 +18,15 @@
     <ul class="nav-links">
       <li><a href="index.html">Home</a></li>
       <li><a href="about.html" class="active">About</a></li>
+      <li>
+        <a class="nav-icon-link" href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener" aria-label="LinkedIn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+            <rect x="2" y="9" width="4" height="12"/>
+            <circle cx="4" cy="4" r="2"/>
+          </svg>
+        </a>
+      </li>
     </ul>
   </div>
 </nav>
@@ -27,7 +39,7 @@
 
   <div class="about-content">
     <p>
-      Business Intelligence consultant at <strong>Kolibrivision</strong> in Stockholm, Qlik enthusiast all the time.
+      Business Intelligence consultant at <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener" class="about-company-link"><strong>Kolibri Vision</strong></a> in Stockholm, Qlik enthusiast all the time.
       Most people online know me as <strong>Qlikard</strong> — a name that kind of chose itself.
     </p>
 
@@ -53,15 +65,25 @@
       I write the posts I wish I could have found when I was stuck.
     </p>
 
-    <div class="tip-box">
-      Got a question or a topic you'd like me to cover?
-      Reach me at <a href="mailto:rikard.larsson@kolibrivision.se">rikard.larsson@kolibrivision.se</a>
+    <h2>Get in touch</h2>
+    <p>Got a question or a topic you'd like me to cover? Reach out.</p>
+    <div class="about-links">
+      <a href="mailto:rikard.larsson@kolibrivision.se" class="about-cta">rikard.larsson@kolibrivision.se</a>
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener" class="about-cta">LinkedIn ↗</a>
     </div>
   </div>
 </main>
 
 <footer>
-  <p>by <strong>Qlikard</strong></p>
+  <div class="footer-inner">
+    <span class="footer-brand">by <strong>Qlikard</strong> — Rikard Larsson</span>
+    <div class="footer-links">
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision</a>
+      <a href="about.html">About</a>
+    </div>
+    <span class="footer-copy">© 2026</span>
+  </div>
 </footer>
 
 <script src="js/posts-data.js"></script>
