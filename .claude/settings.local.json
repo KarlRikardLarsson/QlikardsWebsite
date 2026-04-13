@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cp \"C:/Users/RikardLarsson/.claude/image-cache/c0eb6ff8-a35f-44c9-bf64-cf04e0295170/9.png\" \"C:/repos/Website/images/filter-list-condition.png\")",
+      "Bash(cp \"C:/Users/RikardLarsson/.claude/image-cache/c0eb6ff8-a35f-44c9-bf64-cf04e0295170/10.png\" \"C:/repos/Website/images/filter-list-get-expression.png\")",
+      "Bash(cp \"C:/Users/RikardLarsson/.claude/image-cache/c0eb6ff8-a35f-44c9-bf64-cf04e0295170/8.png\" \"C:/repos/Website/images/split-automation-report-inputs.png\")",
+      "Bash(cp \"C:/Users/RikardLarsson/.claude/image-cache/c0eb6ff8-a35f-44c9-bf64-cf04e0295170/9.png\" \"C:/repos/Website/images/split-automation-report-flow.png\")",
+      "Bash(cp \"C:/Users/RikardLarsson/.claude/image-cache/c0eb6ff8-a35f-44c9-bf64-cf04e0295170/10.png\" \"C:/repos/Website/images/split-automation-call-block.png\")"
+    ]
+  }
+}

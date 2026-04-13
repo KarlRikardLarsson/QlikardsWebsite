@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Beat the Memory Limit — Split Report Automations in Two — Qlikard</title>
+  <meta name="post-id" content="split-automation-memory-limit" />
+  <meta name="post-category" content="automate" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2316a34a'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='white' text-anchor='middle'>Q</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+      <li>
+        <a class="nav-icon-link" href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener" aria-label="LinkedIn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+            <rect x="2" y="9" width="4" height="12"/>
+            <circle cx="4" cy="4" r="2"/>
+          </svg>
+        </a>
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag automate">Qlik Automate</span>
+    <h1 class="post-title">Beat the Memory Limit — Split Report Automations in Two</h1>
+    <div class="post-meta-bar">
+      <span>April 13, 2026</span>
+      <span>·</span>
+      <span>5 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      Building reports inside Qlik Automate consumes memory — and when you have many recipients,
+      each with their own filter selections and a multi-page report, a single automation run will
+      eventually hit the memory limit. The run fails mid-way, some recipients never get their
+      report, and the failure is often hard to reproduce because it depends on how much state
+      has accumulated by the time the crash occurs.
+    </p>
+
+    <p>
+      The most scalable solution I've found is to split the work across two automations. One
+      handles orchestration — reading the recipient list, resolving filters, deciding who gets
+      what. The other handles report building and sending for a single recipient. The orchestrator
+      calls the report automation once per recipient, passing everything it needs as input.
+    </p>
+
+    <h2>Why this works</h2>
+
+    <p>
+      Each call to the report automation is an independent run. It starts clean, builds one
+      report, sends one email, and exits. No memory from the previous recipient carries over.
+      No matter how many pages the report has, or how many recipients are in the list, every
+      report is built in isolation with the full memory budget available to it.
+    </p>
+
+    <p>
+      This also makes the automation easier to maintain. The orchestrator is purely data logic —
+      it never touches a report block. The report automation is purely delivery logic — it never
+      touches a recipient list. Each one can be changed, tested, and debugged independently.
+    </p>
+
+    <h2>Setting up the report automation</h2>
+
+    <p>
+      The report automation needs to accept input values from the outside rather than reading
+      them itself. To enable this:
+    </p>
+
+    <ol>
+      <li>Set the start trigger to <strong>Manual</strong> (so it can be triggered programmatically)</li>
+      <li>Add an <strong>Inputs</strong> block immediately after Start</li>
+      <li>Define one input field for each value the orchestrator will pass</li>
+    </ol>
+
+    <img src="../images/split-automation-report-inputs.png" alt="Report automation canvas: Start → Inputs block (open, showing Email, Enhet, Rapport, Användare, ReportFilter input fields) → Variable-vEnhetList → Variable-vItr → Variable-vReportSelectionFinal → Loop 2 → Create Report" />
+
+    <p>
+      In this example the inputs are: <strong>Email</strong>, <strong>Enhet</strong> (the filter
+      value), <strong>Rapport</strong> (which report to build), <strong>Användare</strong>
+      (display name for the email), and <strong>ReportFilter</strong> (an optional additional
+      filter). All required fields are marked with an asterisk; optional ones are not.
+    </p>
+
+    <div class="tip-box">
+      Note the warning at the bottom of the Inputs block: <em>"Data input type can only be used
+      with triggered automations. It will not work during interactive runs."</em> This means you
+      cannot test this automation by clicking Run in the editor — it must be called from another
+      automation or triggered via API. For local testing, temporarily hardcode the input values
+      in variable blocks at the top.
+    </div>
+
+    <p>
+      Once the Inputs block is in place, every subsequent block in the automation can reference
+      the input values just like any other variable — <code>{ $.inputs.Email }</code>,
+      <code>{ $.inputs.Enhet }</code>, and so on. The rest of the automation is built exactly as
+      you would build a single-recipient report: apply selections, build the chart, generate the
+      PDF, send the email.
+    </p>
+
+    <img src="../images/split-automation-report-flow.png" alt="Report automation — same Inputs block with Email, Enhet, Rapport, Användare, ReportFilter. The canvas shows the flow continuing into variable blocks and a loop before reaching the report generation steps." />
+
+    <h2>Calling it from the orchestrator</h2>
+
+    <p>
+      The orchestrator loops through the recipient list — reading from Excel, a Qlik table, or
+      wherever the config lives — and for each recipient uses a <strong>Call Automation</strong>
+      block to trigger the report automation.
+    </p>
+
+    <img src="../images/split-automation-call-block.png" alt="Call Automation block in the orchestrator — Inputs section lists Email, Enhet, Rapport, Användare, ReportFilter, matching the report automation's input definitions exactly." />
+
+    <p>
+      The Call Automation block exposes exactly the input fields defined in the report automation.
+      Map each one to the corresponding value from the current loop iteration:
+      the recipient's email address, their filter value, the report name, and so on.
+    </p>
+
+    <p>
+      The orchestrator waits for each call to complete before moving on to the next recipient.
+      This means the loop is sequential — one report finishes, then the next begins. The
+      important caveat is that if the report automation fails, that error is not surfaced back
+      to the orchestrator. The orchestrator simply continues to the next recipient, unaware
+      that anything went wrong.
+    </p>
+
+    <p>
+      Because of this, <strong>error handling must live inside the report automation itself</strong>.
+      Wrap the report and email logic in error handling blocks within that automation — catch
+      failures, log them, or send an alert from there. Do not rely on the orchestrator to
+      detect or recover from report failures.
+    </p>
+
+    <h2>The trade-off: automation run quota</h2>
+
+    <p>
+      Each call to the report automation counts as one automation run against your monthly
+      Qlik Cloud quota. A daily report with 20 recipients uses 20 runs per day — roughly 600
+      runs per month for that one report alone.
+    </p>
+
+    <p>
+      That sounds like a lot, but Qlik has significantly increased the run limits in recent
+      subscription tiers. In practice I have not come close to hitting it with this pattern,
+      even across multiple active reports. If your recipient count is very high or you're on
+      a tighter plan, it's worth checking your current quota before rolling this out at scale.
+    </p>
+
+    <div class="tip-box">
+      This pattern is my preferred approach for any report automation with more than a handful
+      of recipients. The memory isolation alone is worth it — but the cleaner separation of
+      concerns and the ability to test each automation independently makes it the right
+      architecture regardless of scale.
+    </div>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <span class="footer-brand">by <strong>Qlikard</strong> — Rikard Larsson</span>
+    <div class="footer-links">
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision</a>
+      <a href="../about.html">About</a>
+    </div>
+    <span class="footer-copy">© 2026</span>
+  </div>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

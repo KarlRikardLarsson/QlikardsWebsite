@@ -18,6 +18,33 @@ const CATEGORIES = {
 
 const POSTS = [
   {
+    id: 'split-automation-memory-limit',
+    title: 'Beat the Memory Limit — Split Report Automations in Two',
+    excerpt: 'Building reports for many recipients in a single automation run eventually hits the memory limit. The fix: one orchestrator automation that loops through recipients, and one report automation that builds and sends for a single recipient. Each call runs clean with the full memory budget.',
+    category: 'automate',
+    date: '2026-04-13',
+    file: 'posts/split-automation-memory-limit.html',
+    readTime: 5,
+  },
+  {
+    id: 'filter-list-to-qlik-selection',
+    title: 'Turn a Comma-Separated Excel Filter into a Qlik Report Selection',
+    excerpt: 'Report config stored in Excel often has multiple filter values in one cell, separated by commas. This automation converts that raw string into the "val1","val2","val3" format that Add Selection To Chart expects — and checks whether there\'s actually data before sending.',
+    category: 'automate',
+    date: '2026-04-13',
+    file: 'posts/filter-list-to-qlik-selection.html',
+    readTime: 6,
+  },
+  {
+    id: 'autonumber-load-vs-statement',
+    title: 'Autonumber During LOAD vs After — Which Is Faster?',
+    excerpt: 'Two ways to autonumber key fields: inline in the LOAD, or with a wildcard statement after. The inline approach is 30% faster because it avoids a second pass over the data. Plus: why a company prefix matters, and how to exclude all keys from Smart Search in one line.',
+    category: 'scripts',
+    date: '2026-04-13',
+    file: 'posts/autonumber-load-vs-statement.html',
+    readTime: 5,
+  },
+  {
     id: 'graphql-in-qlik-script',
     title: 'Calling GraphQL APIs from Qlik Script',
     excerpt: 'GraphQL is just HTTP POST with a JSON body — but embedding that body safely in a Qlik script requires handling whitespace and quote escaping. One utility subroutine solves it once, and a clean query-per-subroutine pattern keeps the rest of the script readable.',

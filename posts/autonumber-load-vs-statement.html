@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autonumber During LOAD vs After — Which Is Faster? — Qlikard</title>
+  <meta name="post-id" content="autonumber-load-vs-statement" />
+  <meta name="post-category" content="scripts" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2316a34a'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='white' text-anchor='middle'>Q</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+      <li>
+        <a class="nav-icon-link" href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener" aria-label="LinkedIn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+            <rect x="2" y="9" width="4" height="12"/>
+            <circle cx="4" cy="4" r="2"/>
+          </svg>
+        </a>
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag scripts">Scripts</span>
+    <h1 class="post-title">Autonumber During LOAD vs After — Which Is Faster?</h1>
+    <div class="post-meta-bar">
+      <span>April 13, 2026</span>
+      <span>·</span>
+      <span>5 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      I always use <code>Autonumber()</code> for my key fields. Converting a long string key like
+      <code>'Company1|TXN-000123'</code> to a small integer saves a significant amount of memory —
+      Qlik stores the integer symbol once and references it everywhere, while a string gets
+      duplicated across every row in every table that uses it. For large models with millions of
+      rows across multiple fact tables, this adds up fast.
+    </p>
+
+    <p>
+      There are two ways to apply it: inline as a function inside the LOAD statement, or as a
+      standalone <code>Autonumber</code> statement after the LOAD using a wildcard. I benchmarked
+      both to see if it matters where you put it.
+    </p>
+
+    <h2>Why a prefix on key fields?</h2>
+
+
+    <p>
+      The <code>%</code> prefix on the field name is a Qlik convention for key fields. It's not
+      required, but it signals intent to anyone reading the script — and, as we'll see at the end,
+      it makes it easy to apply rules to all keys at once using a wildcard.
+    </p>
+
+    <h2>Approach 1: Autonumber inline in the LOAD</h2>
+
+    <p>
+      The most common pattern — call <code>Autonumber()</code> directly on each key field inside
+      the LOAD:
+    </p>
+
+<pre><code>LET vTestStart = timestamp(now(),'hh:mm:ss.fff');
+
+Tmp_Sorted:
+LOAD
+    *,
+    Autonumber('Company1|' & Dimension1) AS %KEY_1,
+    Autonumber('Company1|' & Dimension2) AS %KEY_2,
+    Autonumber('Company1|' & Dimension3) AS %KEY_3,
+    Autonumber('Company1|' & Dimension4) AS %KEY_4
+RESIDENT Transactions
+;
+
+DROP TABLE Tmp_Sorted;
+
+CALL sLog('Autonumber During LOAD','$(vTestStart)',timestamp(now(),'hh:mm:ss.fff'));</code></pre>
+
+    <h2>Approach 2: Autonumber statement with a wildcard</h2>
+
+    <p>
+      Load the string keys first, then apply autonumbering in a separate pass using the
+      standalone <code>Autonumber</code> statement with a wildcard:
+    </p>
+
+<pre><code>LET vTestStart = timestamp(now(),'hh:mm:ss.fff');
+
+Tmp_Sorted:
+LOAD
+    *,
+    'Company2|' & Dimension1 AS %KEY_1,
+    'Company2|' & Dimension2 AS %KEY_2,
+    'Company2|' & Dimension3 AS %KEY_3,
+    'Company2|' & Dimension4 AS %KEY_4
+RESIDENT Transactions
+;
+
+Autonumber '%KEY_*';
+
+DROP TABLE Tmp_Sorted;
+
+CALL sLog('Autonumber %KEY_*','$(vTestStart)',timestamp(now(),'hh:mm:ss.fff'));</code></pre>
+
+    <h2>Results</h2>
+
+    <p>
+      Both approaches produce identical output — the difference is only in how long they take.
+      Run over a large transaction table with multiple key fields:
+    </p>
+
+    <ul>
+      <li><strong>Autonumber during LOAD:</strong> 0:00:17</li>
+      <li><strong>Autonumber with wildcard after LOAD:</strong> 0:00:24</li>
+    </ul>
+
+    <p>
+      The inline approach was about 30% faster. The reason is that the wildcard statement
+      requires a second pass over the data — it loads the full string keys first, then rewrites them
+      all as integers in a separate step. The inline function does both in one pass, row by row, as
+      the LOAD runs.
+    </p>
+
+    <div class="tip-box">
+      The wildcard approach is still useful when you're working with a table that was already loaded
+      without autonumber — for instance, when retrofitting keys to a table loaded by someone else's
+      script. But if you're writing the LOAD yourself, do it inline.
+    </div>
+
+    <h2>Bonus: exclude key fields from Smart Search</h2>
+
+    <p>
+      Since all key fields follow the <code>%KEY_*</code> naming convention, you can exclude them
+      from Smart Search indexing with one line:
+    </p>
+
+<pre><code>search exclude '%KEY*';</code></pre>
+
+    <p>
+      Smart Search indexes every field by default, including keys — but keys are integers that carry
+      no meaning to the end user. Excluding them reduces index size and keeps search results clean.
+      The <code>%</code> prefix makes the wildcard trivial to write: one rule covers every key in
+      the entire model, no matter how many you add later.
+    </p>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <span class="footer-brand">by <strong>Qlikard</strong> — Rikard Larsson</span>
+    <div class="footer-links">
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision</a>
+      <a href="../about.html">About</a>
+    </div>
+    <span class="footer-copy">© 2026</span>
+  </div>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

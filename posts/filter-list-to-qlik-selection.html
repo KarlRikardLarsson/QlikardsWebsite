@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Turn a Comma-Separated Excel Filter into a Qlik Report Selection — Qlikard</title>
+  <meta name="post-id" content="filter-list-to-qlik-selection" />
+  <meta name="post-category" content="automate" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2316a34a'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='white' text-anchor='middle'>Q</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+      <li>
+        <a class="nav-icon-link" href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener" aria-label="LinkedIn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+            <rect x="2" y="9" width="4" height="12"/>
+            <circle cx="4" cy="4" r="2"/>
+          </svg>
+        </a>
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag automate">Qlik Automate</span>
+    <h1 class="post-title">Turn a Comma-Separated Excel Filter into a Qlik Report Selection</h1>
+    <div class="post-meta-bar">
+      <span>April 13, 2026</span>
+      <span>·</span>
+      <span>6 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      A common pattern for tabular report distribution is storing recipient config in an Excel file —
+      one row per recipient, with columns for email address, display name, and which filters should
+      be applied to their version of the report. When a recipient needs more than one filter value,
+      those values end up in a single cell, separated by a comma:
+    </p>
+
+<pre><code>Email               | Filter
+anna@example.com    | 1,2,3,4
+bob@example.com     | 5</code></pre>
+
+    <p>
+      The problem is that Qlik Automate's <strong>Add Selection To Chart</strong> block doesn't
+      accept a raw comma-separated string. It expects the values in a specific format:
+    </p>
+
+<pre><code>"1","2","3","4"</code></pre>
+
+    <p>
+      This automation converts the raw filter string into that format, applies it to a chart in a
+      report, and — before sending — checks whether there is actually data for this combination.
+      If there isn't, it skips the report entirely.
+    </p>
+
+    <h2>The setup</h2>
+
+    <p>
+      Four variables drive the logic:
+    </p>
+
+    <ul>
+      <li><strong>vFilter</strong> (string) — the raw comma-separated value from Excel, e.g. <code>1,2,3,4</code></li>
+      <li><strong>vList</strong> (list) — the same values exploded into a proper list</li>
+      <li><strong>vItr</strong> (number) — a countdown counter used to control comma placement</li>
+      <li><strong>vListResult</strong> (string) — the formatted output, built up item by item</li>
+    </ul>
+
+    <img src="../images/filter-list-automation-overview.png" alt="Qlik Automate canvas showing the full flow: Start → Variable vFilter (set to 1,2,3,4) → Variable vList → Variable vItr → Loop 2 → Variable vListResult inside the loop" />
+
+    <h2>Step 1 — Explode the string into a list</h2>
+
+    <p>
+      The first variable block sets <code>vFilter</code> to the raw string. In a real automation
+      this would be a reference to the Excel cell, not a hardcoded value.
+    </p>
+
+    <p>
+      The second block converts it into a list using the <strong>Merge</strong> operation with
+      <strong>Explode → vFilter</strong> as the source. Explode splits a comma-separated string
+      into individual list items — so <code>1,2,3,4</code> becomes a four-element list.
+    </p>
+
+    <img src="../images/filter-list-vlist-explode.png" alt="Variable vList block — Merge other list into vList, with source set to Explode → V Filter. Allow duplicates: No." />
+
+    <p>
+      The third block sets <code>vItr</code> to <code>{count: { $.vList }}</code> — the number of
+      items in the list. This becomes the countdown.
+    </p>
+
+    <h2>Step 2 — Build the formatted string in a loop</h2>
+
+    <p>
+      The loop iterates over <code>vList</code>. Inside each iteration, two things happen:
+    </p>
+
+    <ol>
+      <li>
+        <strong>vListResult</strong> — append the current item, wrapped in quotes, followed by a
+        comma only if this is not the last item
+      </li>
+      <li>
+        <strong>vItr</strong> — subtract 1
+      </li>
+    </ol>
+
+    <img src="../images/filter-list-vlistresult-append.png" alt="Variable vListResult block — Append to vListResult with value: quote, Loop 2 Item, quote, If → V Itr. The conditional adds a comma between items." />
+
+    <p>
+      The append expression is:
+    </p>
+
+<pre><code>"{$.loop2.item}"{if: { $.vItr } != 1, ',',}</code></pre>
+
+    <p>
+      Breaking it down: the item is always wrapped in quotes. The <code>{if: ...}</code> block
+      adds a comma after it — but only when <code>vItr</code> is not equal to <code>1</code>.
+      Since <code>vItr</code> starts at the total count and decrements each iteration, it reaches
+      <code>1</code> on the final item. That means the last item gets no trailing comma.
+    </p>
+
+    <div class="tip-box">
+      The countdown approach is simpler than trying to detect "last item" directly. Start at
+      count, subtract 1 each round, stop adding the comma when you hit 1. No look-ahead needed.
+    </div>
+
+    <h2>Result</h2>
+
+    <p>
+      After the loop, <code>vListResult</code> contains the formatted string ready to use:
+    </p>
+
+    <img src="../images/filter-list-output.png" alt="Automation run output showing: finished in 1 second, result is &quot;1&quot;,&quot;2&quot;,&quot;3&quot;,&quot;4&quot;" />
+
+    <h2>Step 3 — Apply the selection to a chart</h2>
+
+    <p>
+      Pass <code>vListResult</code> to the <strong>Add Selection To Chart</strong> block as a
+      raw list value:
+    </p>
+
+<pre><code>Field:  YourFieldName
+Values: [{ $.vListResult }]
+Mode:   Raw</code></pre>
+
+    <p>
+      The square brackets wrap the already-formatted string as a raw list. With <strong>Mode</strong>
+      set to <strong>Raw</strong>, Qlik Automate passes the value through without any additional
+      escaping — so the <code>"1","2","3","4"</code> string lands in the selection exactly as built.
+    </p>
+
+    <h2>Step 4 — Skip the report if there is no data</h2>
+
+    <p>
+      Before the report is sent, it's worth checking whether this filter combination actually
+      returns any data. A recipient whose filter matches nothing should not receive an empty report.
+    </p>
+
+    <p>
+      Use a <strong>Get Expression Value</strong> block to evaluate a count expression in the app.
+      The expression uses <code>vListResult</code> directly in set analysis — the same formatted
+      string that was just applied to the chart:
+    </p>
+
+<pre><code>=count({&lt;Enhet={{ $.vListResult }}&gt;}distinct Field)</code></pre>
+
+    <img src="../images/filter-list-get-expression.png" alt="Get Expression Value 2 block — App Id set to App, Expression: =count({&lt;Enhet={{ $.vListResult }}&gt;}distinct Field). Description reads: this block returns a single numerical value based on the expression applied in the specified app." />
+
+    <p>
+      Then a <strong>Condition</strong> block checks the result: if <code>getExpressionValue2</code>
+      is empty, the <em>Yes</em> branch exits — the report is not sent. The <em>No</em> branch
+      continues to the mail block.
+    </p>
+
+    <img src="../images/filter-list-condition.png" alt="Condition 9 block — If { $.getExpressionValue2 } is empty. The Yes branch leads to a disconnected end node (skip report); the No branch continues." />
+
+    <div class="tip-box">
+      This guard is especially useful in multi-recipient loops where filter values come from
+      user-managed Excel files. Values can become stale, and sending a blank report is worse
+      than sending none at all.
+    </div>
+
+    <h2>Download</h2>
+
+    <p>
+      The automation is available as an importable JSON file. In Qlik Automate:
+    </p>
+
+    <ol>
+      <li>Open <strong>Automate</strong> and create a new, empty automation</li>
+      <li>Right-click anywhere on the empty canvas → <strong>Upload workspace</strong></li>
+      <li>Select the JSON file below</li>
+    </ol>
+
+    <p>
+      <a href="../automations/filter-list-to-qlik-selection.json" download><strong>↓ Download automation JSON</strong></a>
+    </p>
+
+    <p>
+      After importing, update the <strong>Add Selection To Chart</strong> block with your chart ID
+      and field name, and connect the <strong>Get Expression Value</strong> block to your app.
+      The <code>vFilter</code> variable is set to a hardcoded test value — replace it with a
+      reference to your Excel data source.
+    </p>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <span class="footer-brand">by <strong>Qlikard</strong> — Rikard Larsson</span>
+    <div class="footer-links">
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision</a>
+      <a href="../about.html">About</a>
+    </div>
+    <span class="footer-copy">© 2026</span>
+  </div>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>
