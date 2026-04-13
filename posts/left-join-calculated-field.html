@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Skip the RENAME — Add Calculated Fields with LEFT JOIN Instead — Qlikard</title>
+  <meta name="post-id" content="left-join-calculated-field" />
+  <meta name="post-category" content="scripts" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2316a34a'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='white' text-anchor='middle'>Q</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+      <li>
+        <a class="nav-icon-link" href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener" aria-label="LinkedIn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+            <rect x="2" y="9" width="4" height="12"/>
+            <circle cx="4" cy="4" r="2"/>
+          </svg>
+        </a>
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag scripts">Scripts</span>
+    <h1 class="post-title">Skip the RENAME — Add Calculated Fields with LEFT JOIN Instead</h1>
+    <div class="post-meta-bar">
+      <span>April 13, 2026</span>
+      <span>·</span>
+      <span>5 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      There's a common pattern for adding a calculated field to an existing table in Qlik.
+      You rename the table, reload everything from it, compute the new field, then drop the temporary
+      copy. It works, but when your table has a unique key you're doing a lot of unnecessary work.
+      A <code>LEFT JOIN</code> loading only the key and the calculated field is significantly faster.
+    </p>
+
+    <h2>The common pattern</h2>
+
+    <p>
+      The classic approach renames the original table, does a full <code>LOAD *</code> to recreate it
+      with the new field appended, then cleans up the temp table:
+    </p>
+
+<pre><code>RENAME TABLE Transactions TO TMP;
+
+Transactions:
+LOAD
+    *,
+    Expression1 - Expression2 AS margin
+RESIDENT TMP
+;
+
+DROP TABLE TMP;</code></pre>
+
+    <p>
+      This is straightforward and works in every situation — with or without a unique key. But it
+      reads every field of every row, writes them all to a new table, and only then drops the original.
+      For a wide or long table, that's a lot of data movement just to add one column.
+    </p>
+
+    <h2>The LEFT JOIN alternative</h2>
+
+    <p>
+      If your table has a unique key, you can join only the key and the new field back onto the
+      existing table. Qlik matches on the shared key field and adds the new column in place — no
+      renaming, no full reload, no copy of every existing field:
+    </p>
+
+<pre><code>LEFT JOIN (Transactions)
+LOAD
+    TransID,
+    Expression1 - Expression2 AS margin
+RESIDENT Transactions
+;</code></pre>
+
+    <p>
+      That's the entire operation. Qlik reads <code>TransID</code> and computes <code>margin</code>
+      for each row, then merges the result into the existing <code>Transactions</code> table by
+      matching on <code>TransID</code>. Every other field in the table is untouched.
+    </p>
+
+    <div class="tip-box">
+      This only works correctly when <code>TransID</code> is unique. If the key has duplicates,
+      the LEFT JOIN will fan out and multiply rows. Always verify your key is distinct before
+      using this pattern.
+    </div>
+
+    <h2>The benchmark</h2>
+
+    <p>
+      To quantify the difference, I tested both approaches on a <strong>10 million row</strong>
+      table with a small number of fields (which actually makes the result more interesting — less
+      data per row means the full-reload overhead is as low as it can be, yet the gap is still
+      large). Each approach was run five times on <strong>Qlik Cloud</strong> and results are the
+      average across all iterations.
+    </p>
+
+    <p>The test script, stripped down:</p>
+
+<pre><code>// ── Approach A — RENAME + LOAD * RESIDENT ──────────────────
+LET vTestStart = Timestamp(Now(), 'hh:mm:ss.fff');
+
+Tmp_Sorted:
+LOAD
+    *,
+    Expression1 - Expression2 AS margin
+RESIDENT Transactions
+;
+
+DROP TABLE Tmp_Sorted;
+
+CALL sLog('LOAD * Resident', '$(vTestStart)', Timestamp(Now(), 'hh:mm:ss.fff'));
+
+
+// ── Approach B — LEFT JOIN ──────────────────────────────────
+LET vTestStart = Timestamp(Now(), 'hh:mm:ss.fff');
+
+LEFT JOIN (Transactions)
+LOAD
+    TransID,
+    Expression1 - Expression2 AS margin
+RESIDENT Transactions
+;
+
+DROP FIELD margin;  // reset between iterations
+
+CALL sLog('Left join', '$(vTestStart)', Timestamp(Now(), 'hh:mm:ss.fff'));</code></pre>
+
+    <div class="tip-box">
+      <code>DROP FIELD margin</code> is only there to reset the table between iterations so each run
+      starts from the same state. In production you leave it in.
+    </div>
+
+    <h2>Results</h2>
+
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Approach</th>
+          <th>Average time (10M rows)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>RENAME + LOAD * RESIDENT + DROP</td>
+          <td class="bad">0:00:08</td>
+        </tr>
+        <tr>
+          <td>LEFT JOIN (key + field only)</td>
+          <td class="good">0:00:03</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <figure class="post-figure">
+      <img src="../images/left-join-benchmark.png" alt="Bar chart showing Left join at 3 seconds versus LOAD * Resident at 8 seconds" />
+      <figcaption>Average over 5 runs — 10M rows, Qlik Cloud. LEFT JOIN is 2.7× faster.</figcaption>
+    </figure>
+
+    <p>
+      LEFT JOIN finished in <strong>3 seconds</strong>. The full reload took <strong>8 seconds</strong>.
+      That's a 2.7× difference — on a table that isn't even especially wide. On a table with many
+      fields the full reload grows proportionally; the LEFT JOIN cost stays nearly the same because
+      it only ever moves two columns.
+    </p>
+
+    <h2>Why it's faster</h2>
+
+    <p>
+      The RENAME + LOAD * approach reads <em>every</em> field of every row from the temp table and
+      writes them all back to the new table. The more fields the table has, the more data moves
+      through memory — even though only one of those fields is new.
+    </p>
+
+    <p>
+      The LEFT JOIN reads only two fields — the join key and the computed value — then merges them
+      into the existing in-memory table structure. No existing fields are copied, no intermediate
+      table is fully materialised with all columns. The wider your table, the bigger this advantage
+      becomes.
+    </p>
+
+    <h2>When to use each</h2>
+
+    <ul>
+      <li>
+        <strong>Use LEFT JOIN</strong> when your table has a unique key and you're adding one or
+        a few calculated fields. Faster, less memory pressure, and the code is shorter too.
+      </li>
+      <li>
+        <strong>Use RENAME + LOAD *</strong> when you don't have a reliable unique key, when you
+        need to filter or transform existing fields at the same time, or when you're adding fields
+        that depend on values from multiple other fields in complex ways.
+      </li>
+    </ul>
+
+    <p>
+      The RENAME pattern isn't wrong — it's the right tool when you genuinely need to rebuild the
+      whole table. But reaching for it by habit when all you need is one new column, on a table
+      that has a unique key, is leaving a straightforward win on the table.
+    </p>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <span class="footer-brand">by <strong>Qlikard</strong> — Rikard Larsson</span>
+    <div class="footer-links">
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision</a>
+      <a href="../about.html">About</a>
+    </div>
+    <span class="footer-copy">© 2026</span>
+  </div>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

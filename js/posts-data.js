@@ -18,6 +18,24 @@ const CATEGORIES = {
 
 const POSTS = [
   {
+    id: 'graphql-in-qlik-script',
+    title: 'Calling GraphQL APIs from Qlik Script',
+    excerpt: 'GraphQL is just HTTP POST with a JSON body — but embedding that body safely in a Qlik script requires handling whitespace and quote escaping. One utility subroutine solves it once, and a clean query-per-subroutine pattern keeps the rest of the script readable.',
+    category: 'scripts',
+    date: '2026-04-13',
+    file: 'posts/graphql-in-qlik-script.html',
+    readTime: 7,
+  },
+  {
+    id: 'left-join-calculated-field',
+    title: 'Skip the RENAME — Add Calculated Fields with LEFT JOIN Instead',
+    excerpt: 'The RENAME + LOAD * + DROP pattern works, but it reloads every field on every row just to add one column. If your table has a unique key, a LEFT JOIN loading only the key and the new field is 2.7× faster on 10M rows.',
+    category: 'scripts',
+    date: '2026-04-13',
+    file: 'posts/left-join-calculated-field.html',
+    readTime: 5,
+  },
+  {
     id: 'self-service-reload-monitor',
     title: 'Monitoring Self-Service Reloads with Qlik Automate',
     excerpt: 'Built-in reload alerts have gaps — limited channels, no stale-app detection, no consolidated view. This automation scans your spaces on a schedule, flags failed or overdue apps, and sends a formatted email summary with direct links to each app\'s reload history.',

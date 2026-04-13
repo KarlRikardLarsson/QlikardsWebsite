@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calling GraphQL APIs from Qlik Script — Qlikard</title>
+  <meta name="post-id" content="graphql-in-qlik-script" />
+  <meta name="post-category" content="scripts" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2316a34a'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='white' text-anchor='middle'>Q</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+      <li>
+        <a class="nav-icon-link" href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener" aria-label="LinkedIn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+            <rect x="2" y="9" width="4" height="12"/>
+            <circle cx="4" cy="4" r="2"/>
+          </svg>
+        </a>
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag scripts">Scripts</span>
+    <h1 class="post-title">Calling GraphQL APIs from Qlik Script</h1>
+    <div class="post-meta-bar">
+      <span>April 13, 2026</span>
+      <span>·</span>
+      <span>7 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      More and more SaaS systems expose their data through GraphQL instead of — or alongside — a
+      traditional REST API. Qlik doesn't have a dedicated GraphQL connector, but it doesn't need
+      one. GraphQL is just HTTP POST with a JSON body. The trick is safely constructing that body
+      inside a Qlik script, where double quotes need special handling.
+    </p>
+
+    <h2>Why constructing the body is tricky</h2>
+
+    <p>
+      A GraphQL request body looks like this:
+    </p>
+
+<pre><code>{
+  "query": "{ products { totalCount items { name productId supplierId } } }",
+  "variables": { "supplierId": "S-10" }
+}</code></pre>
+
+    <p>
+      The problem is that GraphQL queries contain double quotes — and in Qlik, when you embed a
+      variable inside a string literal with <code>$(vBody)</code>, a literal <code>"</code> in
+      the variable value needs to be written as <code>""</code> (Qlik's escape sequence for a
+      double quote inside a single-quoted string). On top of that, the query string cannot contain
+      raw newlines or tabs — those would break the JSON.
+    </p>
+
+    <p>
+      Doing this manually every time is error-prone and hard to read. The solution is a small
+      utility subroutine that handles all of it in one place.
+    </p>
+
+    <h2>Create_Body</h2>
+
+    <p>
+      This subroutine takes a raw GraphQL query string, an optional variables object, and returns
+      a properly formatted JSON body ready to use in a REST connector call:
+    </p>
+
+<pre><code>SUB Create_Body(_query, _variables, _body)
+
+    /*
+    Creates a valid GraphQL request body in JSON format.
+    Strips illegal whitespace characters and escapes double quotes
+    so the result can be safely embedded in a Qlik FROM clause.
+    Inspired by: https://datafetcher.com/graphql-json-body-converter
+    */
+
+    IF Len(_variables) > 0 THEN
+
+        // Query with variables
+        LET _body = Replace(Replace(Replace(Replace('
+        {
+          "query": "$(_query)",
+          "variables": $(_variables)
+        }
+        '
+        , Chr(9),  ' ')          // Tab            → space
+        , Chr(10), ' ')          // Newline         → space
+        , Chr(13), ' ')          // Carriage return → space
+        , '"', Chr(34)&Chr(34))  // "  →  ""  (Qlik escape for double quote)
+        ;
+
+    ELSE
+
+        // Query without variables
+        LET _body = Replace(Replace(Replace(Replace('
+        {
+          "query": "$(_query)"
+        }
+        '
+        , Chr(9),  ' ')
+        , Chr(10), ' ')
+        , Chr(13), ' ')
+        , '"', Chr(34)&Chr(34))
+        ;
+
+    ENDIF
+
+ENDSUB</code></pre>
+
+    <p>
+      The four nested <code>Replace</code> calls handle all the illegal characters in sequence:
+    </p>
+
+    <ul>
+      <li><strong>Chr(9) → space</strong> — removes tab characters that would break JSON</li>
+      <li><strong>Chr(10) → space</strong> — removes Unix newlines</li>
+      <li><strong>Chr(13) → space</strong> — removes Windows carriage returns</li>
+      <li><strong>" → ""</strong> — escapes every double quote so it survives the <code>$(vBody)</code> expansion in the FROM clause</li>
+    </ul>
+
+    <div class="tip-box">
+      The whitespace replacements happen first deliberately. If you escaped the quotes first, the
+      replacement strings would themselves contain quotes that the subsequent passes might mishandle.
+      Order matters here.
+    </div>
+
+    <h2>Defining queries as subroutines</h2>
+
+    <p>
+      For each API endpoint you call, define a separate subroutine that sets the query string.
+      This keeps your GraphQL queries readable — formatted with proper indentation — while
+      keeping the main script clean:
+    </p>
+
+<pre><code>SUB Get_Products_Query(_query)
+    /*
+    Returns the query for the Products endpoint.
+    The query can be copied directly from a GraphQL explorer (Postman, Insomnia, etc.)
+    and pasted here without any manual formatting.
+    */
+    SET _query = '
+    {
+      products {
+        totalCount
+        items {
+          name
+          productId
+          supplierId
+        }
+      }
+    }
+    ';
+ENDSUB</code></pre>
+
+    <p>
+      One subroutine per endpoint. Each one is easy to update independently — paste a new version
+      from Postman, save, done. No risk of accidentally breaking the body-formatting logic.
+    </p>
+
+    <h2>Calling the API</h2>
+
+    <p>
+      With the two utilities in place, loading data from a GraphQL endpoint is three lines of
+      setup followed by a standard LOAD:
+    </p>
+
+<pre><code>// 1. Get the query string
+CALL Get_Products_Query(vQuery);
+
+// 2. Build the request body (no variables for this call)
+CALL Create_Body(vQuery, '', vBody);
+
+// 3. Load from the REST WITH CONNECTION 
+WITH CONNECTION(
+  HTTPHEADER "Authorization" "Bearer $(vAccessToken)",
+  BODY "$(vBody)"
+);</code></pre>
+
+    <p>
+      The field paths follow the GraphQL response structure. A response like
+      <code>{ "data": { "products": { "items": [ {...}, {...} ] } } }</code>
+  
+    </p>
+
+    <div class="tip-box">
+      If you need to debug the body before hitting the API, add a
+      <code>TRACE $(vBody);</code> after the <code>Create_Body</code> call. The formatted body
+      prints to the reload log so you can inspect it directly.
+    </div>
+
+   
+
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <span class="footer-brand">by <strong>Qlikard</strong> — Rikard Larsson</span>
+    <div class="footer-links">
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision</a>
+      <a href="../about.html">About</a>
+    </div>
+    <span class="footer-copy">© 2026</span>
+  </div>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>
