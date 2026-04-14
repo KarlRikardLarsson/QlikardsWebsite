@@ -18,6 +18,15 @@ const CATEGORIES = {
 
 const POSTS = [
   {
+    id: 'incremental-load-qvd-tags',
+    title: 'Smart Incremental Loads — Frequency-Based Full Reloads with QVD Tags',
+    excerpt: 'Getting the incremental start time is the easy part. Knowing when to do a full reload is harder — and different tables need different frequencies. This pattern stores a FullReloadDate tag inside each QVD header and reads it back to decide automatically.',
+    category: 'scripts',
+    date: '2026-04-14',
+    file: 'posts/incremental-load-qvd-tags.html',
+    readTime: 8,
+  },
+  {
     id: 'split-automation-memory-limit',
     title: 'Beat the Memory Limit — Split Report Automations in Two',
     excerpt: 'Building reports for many recipients in a single automation run eventually hits the memory limit. The fix: one orchestrator automation that loops through recipients, and one report automation that builds and sends for a single recipient. Each call runs clean with the full memory budget.',

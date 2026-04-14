@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Incremental Loads — Frequency-Based Full Reloads with QVD Tags — Qlikard</title>
+  <meta name="post-id" content="incremental-load-qvd-tags" />
+  <meta name="post-category" content="scripts" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2316a34a'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='white' text-anchor='middle'>Q</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+      <li>
+        <a class="nav-icon-link" href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener" aria-label="LinkedIn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+            <rect x="2" y="9" width="4" height="12"/>
+            <circle cx="4" cy="4" r="2"/>
+          </svg>
+        </a>
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag scripts">Scripts</span>
+    <h1 class="post-title">Smart Incremental Loads — Frequency-Based Full Reloads with QVD Tags</h1>
+    <div class="post-meta-bar">
+      <span>April 14, 2026</span>
+      <span>·</span>
+      <span>8 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      A basic incremental load answers one question: where did we stop last time? But in
+      practice you need to answer a second question too: when did we last do a full reload?
+      Some tables drift — soft-deleted records, updated historical rows, corrected values —
+      and an incremental that runs forever without a periodic full reload will silently
+      accumulate stale data.
+    </p>
+
+    <p>
+      Different tables have different tolerances. A transaction table that is append-only can
+      go months without a full reload. A dimension table with frequent corrections might need
+      one every week. The pattern below handles both: it reads the incremental start time from
+      the QVD, and uses a tag stored inside the QVD file itself to decide whether this run
+      should be incremental or full.
+    </p>
+
+    <h2>Getting the incremental start time</h2>
+
+    <p>
+      The start time for the next incremental load is the maximum timestamp already in the QVD,
+      plus one millisecond. Reading the entire QVD just to get one value would defeat the
+      purpose, so we load only the timestamp field — and only the distinct values — then
+      aggregate:
+    </p>
+
+<pre><code>MaxEndTimeTemp:
+Load Distinct
+    x as EndTime
+From '$(vOutputQVD)'(qvd);
+
+MaxEndTime:
+Load
+    Max(EndTime) AS MaxEndTime
+Resident MaxEndTimeTemp;
+
+LET vIncrementalStartTime = Peek('MaxEndTime', 0, 'MaxEndTime') + (1 / 24 / 60 / 60 / 1000);
+LET vIncrementalStartTime = Replace(Timestamp('$(vIncrementalStartTime)', 'YYYY-MM-DD hh:mm:ssZ'), ' ', 'T');
+
+DROP TABLES MaxEndTimeTemp, MaxEndTime;</code></pre>
+
+    <p>
+      The <code>+ (1 / 24 / 60 / 60 / 1000)</code> expression adds exactly one millisecond in
+      Qlik's internal numeric format — one day divided down to milliseconds. The
+      <code>Replace(..., ' ', 'T')</code> converts the timestamp into ISO 8601 format
+      (<code>2026-03-05T12:27:00.000</code>), which most source systems accept in their API
+      filter parameters.
+    </p>
+
+    <div class="tip-box">
+      This assumes the source system supports millisecond-level filtering. If it only supports
+      second-level precision, drop the millisecond addition and adjust the format string
+      accordingly. The principle is the same either way.
+    </div>
+
+    <h2>Tagging the QVD when storing</h2>
+
+    <p>
+      QVD files can carry arbitrary metadata tags — key-value pairs stored in the file header
+      that survive across reloads and can be read back without loading the data. The idea of
+      using these for reload metadata comes from
+      <a href="https://qlikviewcookbook.com/2023/09/using-attributes-in-qvd-files/" target="_blank" rel="noopener">this article on QlikView Cookbook</a>.
+    </p>
+
+    <p>
+      Before storing a table, call this subroutine to write the full reload date into the QVD
+      header:
+    </p>
+
+<pre><code>SUB AddTag(_Table)
+
+    IF $(vForceFullReload) = 1 OR $(vIncrementalQVDsAvailable) &lt;&gt; 1 THEN
+        TAG TABLE $(_Table) WITH 'FullReloadDate=$(vToday)';
+    ELSE
+        LET vLastFullReload = Date('$(vLastFullReload)', 'YYYY-MM-DD');
+        TAG TABLE $(_Table) WITH 'FullReloadDate=$(vLastFullReload)';
+    END IF;
+
+END SUB</code></pre>
+
+    <p>
+      If this is a full reload (either forced or because no QVD existed yet), the tag is set
+      to today's date. If this is an incremental run, the tag carries forward the date of the
+      last full reload — so the tag always reflects when the data was last fully refreshed,
+      not when it was last touched.
+    </p>
+
+    <h2>Checking whether to do a full reload</h2>
+
+    <p>
+      The <code>Check_incremental</code> subroutine takes two arguments: the table name and the
+      maximum number of days allowed since the last full reload. It reads the tag from the QVD,
+      compares it to today, and sets <code>vForceFullReload</code> accordingly.
+    </p>
+
+<pre><code>SUB Check_incremental(_incrTable, _DaysBack)
+
+    // ── Read tags from a QVD file header ──────────────────────────────
+    SUB LoadTags(_path)
+        _TempTags:
+        LOAD
+            SubField(Tag, '=', 1) AS TagName,
+            SubField(Tag, '=', 2) AS TagValue
+        ;
+        LOAD String%Table AS Tag
+        FROM [$(_path)]
+        (XmlSimple, table is [QvdTableHeader/TableTags/String])
+        WHERE String%Table LIKE '*=*';
+
+        FOR _i = 0 TO NoOfRows('_TempTags') - 1
+            LET _vname = 'Tag:' & Peek('TagName', _i, '_TempTags');
+            LET [$(_vname)] = Peek('TagValue', _i, '_TempTags');
+        NEXT _i
+
+        DROP TABLE _TempTags;
+        SET _vname=;
+        SET _i=;
+    END SUB
+
+    // ── Determine QVD availability ─────────────────────────────────────
+    LET vIncrQVDPath               = '$(vOutputQVDName($(vCompany),$(_incrTable)))';
+    LET vToday                     = Today(1);
+    LET vIncrementalQVDsAvailable  = If(Len(FileTime('$(vIncrQVDPath)')) > 0, 1, 0);
+    LET vIncrementalMessage        = If($(vIncrementalQVDsAvailable) = 1,
+                                        'Incremental QVDs found',
+                                        'No Incremental QVDs found. Do not panic. I can fix that.');
+
+    // ── Decide full vs incremental based on tag ────────────────────────
+    IF $(vIncrementalQVDsAvailable) = 1 THEN
+
+        CALL LoadTags('$(vIncrQVDPath)');
+        LET vLastFullReload = '$(Tag:FullReloadDate)';
+        TRACE 🔖 FullReload Tag Found: $(vLastFullReload);
+
+        IF Today(1) - Date('$(vLastFullReload)', 'YYYY-MM-DD') >= _DaysBack THEN
+            LET vForceFullReload = 1;
+        ELSE
+            LET vForceFullReload = 0;
+        END IF
+
+    ELSE
+        LET vForceFullReload = 1;
+    ENDIF
+
+END SUB</code></pre>
+
+    <p>
+      The <code>LoadTags</code> inner subroutine uses <code>XmlSimple</code> to read the QVD
+      header directly — no data rows are loaded. Each tag is split on <code>=</code> into a
+      name and value, then stored as a Qlik variable named <code>Tag:FullReloadDate</code>.
+      The outer subroutine reads that variable and compares the date to <code>_DaysBack</code>.
+    </p>
+
+    <h2>Using it in the script</h2>
+
+    <p>
+      Call <code>Check_incremental</code> before loading each table, passing the table name and
+      your desired full reload interval in days. :
+    </p>
+
+<pre><code>// Full reload every 7 days, incremental otherwise
+CALL Check_incremental('Vouchers', 7);
+
+  Awesome Qlik code right here...
+
+
+CALL AddTag('Vouchers');
+</code></pre>
+
+    <p>
+      Different tables get different intervals simply by changing the second argument:
+    </p>
+
+<pre><code>CALL Check_incremental('Vouchers',     7);   // full reload weekly
+CALL Check_incremental('Transactions', 100); // full reload every ~3 months
+CALL Check_incremental('Customers',    14);  // full reload every two weeks</code></pre>
+
+    <h2>What the reload log looks like</h2>
+
+    <img src="../images/incremental-load-log.png" alt="Reload log showing: _TempTags loaded with 1 line fetched, FullReload Tag Found: 2026-03-05, then VouchersMaxLastupdateTime loaded from Vouchers with 1 line fetched, Incremental QVDs found — resuming from: 2026-03-05 12:27:00.000" />
+
+    <p>
+      The log confirms that the tag was read (<code>FullReload Tag Found: 2026-03-05</code>),
+      the QVD exists, and the incremental start time was resolved to
+      <code>2026-03-05 12:27:00.000</code> — the millisecond after the last record in the QVD.
+      If the tag had been older than <code>_DaysBack</code> days, the log would show a full
+      reload instead.
+    </p>
+
+    <div class="tip-box">
+    These subroutines makes some assumptions for prerequisites:
+    <ul>
+      <li>vToday is set to today's date. This is created in Check_incremental subroutine.</li>
+      <li>This code has a variables called vOutputQVDName, which can we exchanged to march you QVD search path.</code>.</li>
+    </div>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <span class="footer-brand">by <strong>Qlikard</strong> — Rikard Larsson</span>
+    <div class="footer-links">
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision</a>
+      <a href="../about.html">About</a>
+    </div>
+    <span class="footer-copy">© 2026</span>
+  </div>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>
