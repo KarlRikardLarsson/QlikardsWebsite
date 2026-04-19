@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Outer Set Expressions & Master Measures — One Source of Truth — Qlikard</title>
+  <meta name="post-id" content="outer-set-master-measures" />
+  <meta name="post-category" content="viz" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2316a34a'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='white' text-anchor='middle'>Q</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+      <li>
+        <a class="nav-icon-link" href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener" aria-label="LinkedIn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+            <rect x="2" y="9" width="4" height="12"/>
+            <circle cx="4" cy="4" r="2"/>
+          </svg>
+        </a>
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag viz">Visualizations</span>
+    <h1 class="post-title">Outer Set Expressions on Master Measures — One Source of Truth</h1>
+    <div class="post-meta-bar">
+      <span>April 19, 2026</span>
+      <span>·</span>
+      <span>7 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      Most set analysis ends up duplicated across measures. You write the same filter three
+      different ways in three different master items, and the moment business logic changes,
+      you're hunting down every copy. There's a better way: one base master measure, and outer
+      set expressions that apply context to it on the fly.
+    </p>
+
+    <h2>Inner vs outer set expressions</h2>
+
+    <p>
+      You're already familiar with inner set expressions — the set analysis lives inside the
+      aggregation function:
+    </p>
+
+<pre><code>Sum( {&lt;ReportType={"P&amp;L"}&gt;} Amount )</code></pre>
+
+    <p>
+      An <em>outer</em> set expression is placed before the aggregation, not inside it. It applies
+      to everything that follows in the same lexical scope:
+    </p>
+
+<pre><code>{&lt;ReportType={"P&amp;L"}&gt;} Sum(Amount) / Count(distinct Customer)</code></pre>
+
+    <p>
+      Here, both <code>Sum(Amount)</code> and <code>Count(distinct Customer)</code> are filtered
+      by the outer set. You write the filter once and it applies to the whole expression.
+    </p>
+
+    <p>
+      The key capability that makes this pattern powerful: an outer set expression can also be
+      applied directly to a master measure label.
+    </p>
+
+<pre><code>{&lt;ReportType={"P&amp;L"}&gt;} [AC]</code></pre>
+
+    <p>
+      <code>AC</code> is a master measure. The outer set expression injects context into it
+      without touching its definition.
+    </p>
+
+    <h2>Building the base master measure</h2>
+
+    <p>
+      The base master measure is the single definition everything else references. For a P&amp;L
+      amount it might look like this:
+    </p>
+
+<pre><code>$(vFormatNumber(
+    Sum(
+        {&lt;ReportType={"P&amp;L"}&gt;}
+        Amount
+    )
+    / $(vV_SelectedScale)
+))</code></pre>
+
+    <p>
+      Call this master measure <strong>AC</strong> (Actual). It handles the core aggregation,
+      the scale factor, and the number formatting — all in one place.
+    </p>
+
+    <p>
+      Now every other measure in the app can be built around <code>AC</code>, not around a
+      copy of its formula.
+    </p>
+
+    <h2>Applying context with outer set expressions</h2>
+
+    <p>
+      Once you have the base measure, adding context is just a prefix. To show only specific
+      P&amp;L structure lines:
+    </p>
+
+<pre><code>{&lt;"Structure Line"={'Nettoomsättning','Täckningsbidrag (TB)','Resultat före avskrivningar (EBITDA)','Resultat efter skatt'}&gt;}
+[AC]</code></pre>
+
+    <p>
+      To apply a YTD filter defined in a variable:
+    </p>
+
+<pre><code>{&lt;$(vYTD)&gt;}
+[AC]</code></pre>
+
+    <p>
+      Both of these reference the same <code>AC</code> master measure. If you change the
+      definition of <code>AC</code> — a new field, a different filter, a scale adjustment —
+      every expression built on top of it updates automatically. One change, no hunting.
+    </p>
+
+    <h2>Lexical scoping — controlling what the set affects</h2>
+
+    <p>
+      By default, an outer set expression affects the entire expression it precedes. Brackets
+      narrow the scope:
+    </p>
+
+<pre><code>( {&lt;$(vYTD)&gt;} Sum(Amount) / Count(distinct Customer) ) - Avg(CustomerSales)</code></pre>
+
+    <p>
+      Here the outer set only applies to what's inside the brackets. <code>Avg(CustomerSales)</code>
+      runs against the current selection, not the YTD filter. The brackets define the
+      <em>lexical scope</em> of the set expression.
+    </p>
+
+    <p>
+      This matters when combining filtered and unfiltered aggregations in the same expression.
+      Without brackets, the set would bleed into every term. With brackets, you control exactly
+      how far it reaches.
+    </p>
+
+    <h2>Inheritance — inner expressions override outer ones</h2>
+
+    <p>
+      When you have both an outer set expression and an inner one, the inner takes precedence
+      if it includes a set identifier. Without a set identifier, both are applied together.
+    </p>
+
+    <p>
+      Inner set expression <em>with</em> a set identifier — the outer <code>Year={2023}</code>
+      is ignored for that aggregation:
+    </p>
+
+<pre><code>{&lt;Year={2023}&gt;} Sum(Sales) / Count({1} distinct OrderNumber)</code></pre>
+
+    <p>
+      <code>Count({1} distinct OrderNumber)</code> uses the full set (<code>{1}</code> = all
+      data), completely ignoring the outer year filter.
+    </p>
+
+    <p>
+      Inner set expressions <em>without</em> set identifiers — the outer year filter is applied
+      to both:
+    </p>
+
+<pre><code>{&lt;Year={2023}&gt;} Sum({&lt;Status={'Confirmed'}&gt;} Sales_Stream1) + Sum({&lt;UpdatedStatus={'Confirmed'}>} Sales_Stream2)</code></pre>
+
+    <p>
+      Here, both inner expressions inherit <code>Year={2023}</code> from the outer set, then
+      add their own field filter on top.
+    </p>
+
+    <h2>Number formatting — do it in the expression, not the master measure setting</h2>
+
+    <p>
+      Qlik has a format setting on the master measure itself. Don't rely on it for this pattern.
+      The master measure format setting only applies when the measure is used inside a
+      visualization as a measure column. It does <em>not</em> carry over when you reference the
+      master measure in a header, a label expression, or a text object.
+    </p>
+
+    <figure class="post-figure">
+      <img src="../images/outer-set-master-measure-format-proof.png" alt="Qlik text object showing 'Formated: 4,594,500.0 | Unformated: 4594500' — the left value uses Num() in the expression, the right relies on the master measure format setting" />
+      <figcaption>
+        Both columns reference the same master measure. Left: <code>Num()</code> applied inside the
+        formula — the formatting follows everywhere, including this text object header.
+        Right: format defined only in the master measure setting — the setting is ignored outside
+        a visualization measure column and the raw number is shown.
+      </figcaption>
+    </figure>
+
+    <p>
+      Put the formatting inside the master measure formula using <code>Num()</code>:
+    </p>
+
+<pre><code>Num(
+    Sum({&lt;ReportType={"P&amp;L"}&gt;} Amount) / $(vV_SelectedScale),
+    '#,##0.0'
+)</code></pre>
+
+    <p>
+      Now the formatting follows the measure everywhere it's used — in visualizations, headers,
+      and anywhere an outer set expression references it.
+    </p>
+
+    <h2>Variable functions for consistent formatting</h2>
+
+    <p>
+      Rather than hardcoding format strings, define them as variable functions that respect the
+      user's locale separators:
+    </p>
+
+<pre><code>Set vFormatPercent    = Num($1, '0$(DecimalSep)0%');
+Set vFormatNumber     = Num($1, '#$(ThousandSep)##0$(DecimalSep)00');
+Set vFormatWholeNumber = Num($1, '#$(ThousandSep)##0');</code></pre>
+
+    <p>
+      <code>$1</code> is a placeholder — when you call the variable, you pass the expression as
+      an argument. Use it in the base master measure like this:
+    </p>
+
+<pre><code>$(vFormatNumber(
+    Sum({&lt;ReportType={"P&amp;L"}&gt;} Amount) / $(vV_SelectedScale)
+))</code></pre>
+
+    <p>
+      Now the format string is also defined in one place. Switch between percent, number, and
+      whole number by swapping the variable name — the formula inside doesn't change.
+    </p>
+
+    <div class="tip-box">
+      <code>$(DecimalSep)</code> and <code>$(ThousandSep)</code> are built-in Qlik system variables
+      that resolve to the user's locale separator characters. Using them means your format strings
+      work correctly whether the app is opened in a Swedish, US, or German locale — no hardcoding
+      commas or dots.
+    </div>
+
+    <h2>The full pattern in practice</h2>
+
+    <p>
+      Putting it together: one base master measure with formatting built in, several contextual
+      expressions built on top with outer set expressions:
+    </p>
+
+<pre><code>// Base master measure: AC (Actual)
+$(vFormatNumber(
+    Sum({&lt;ReportType={"P&amp;L"}&gt;} Amount) / $(vV_SelectedScale)
+))
+
+// Show only key P&amp;L lines
+{&lt;"Structure Line"={'Nettoomsättning','Täckningsbidrag (TB)','Resultat före avskrivningar (EBITDA)','Resultat efter skatt'}&gt;}
+[AC]
+
+// YTD only
+{&lt;$(vYTD)&gt;} [AC]
+
+// YTD for key lines only
+{&lt;$(vYTD), "Structure Line"={'Nettoomsättning','Täckningsbidrag (TB)'}&gt;} [AC]</code></pre>
+
+    <p>
+      Each of these is a separate master measure with a different name, but they all reference
+      the same <code>AC</code> definition. Update <code>AC</code> once — the scale logic, the
+      report type filter, the format — and all three update with it.
+    </p>
+
+    <p>
+      This is the same principle as the
+      <a href="dollar-sign-master-measure-total.html">$(=MasterMeasure) pattern for totals</a>:
+      one definition, referenced everywhere. The difference here is that outer set expressions
+      let you inject <em>context</em> into the master measure, not just evaluate it at chart level.
+    </p>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <span class="footer-brand">by <strong>Qlikard</strong> — Rikard Larsson</span>
+    <div class="footer-links">
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision</a>
+      <a href="../about.html">About</a>
+    </div>
+    <span class="footer-copy">© 2026</span>
+  </div>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

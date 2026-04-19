@@ -18,6 +18,15 @@ const CATEGORIES = {
 
 const POSTS = [
   {
+    id: 'outer-set-master-measures',
+    title: 'Outer Set Expressions on Master Measures — One Source of Truth',
+    excerpt: 'One base master measure, outer set expressions to inject context. Filter by P&L structure lines, apply YTD, or combine both — all referencing the same definition. Change it once, everything follows. Includes the variable-function formatting pattern with locale-aware separators.',
+    category: 'viz',
+    date: '2026-04-19',
+    file: 'posts/outer-set-master-measures.html',
+    readTime: 7,
+  },
+  {
     id: 'incremental-load-qvd-tags',
     title: 'Smart Incremental Loads — Frequency-Based Full Reloads with QVD Tags',
     excerpt: 'Getting the incremental start time is the easy part. Knowing when to do a full reload is harder — and different tables need different frequencies. This pattern stores a FullReloadDate tag inside each QVD header and reads it back to decide automatically.',
