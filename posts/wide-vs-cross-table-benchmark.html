@@ -39,7 +39,7 @@
     <div class="post-meta-bar">
       <span>April 24, 2026</span>
       <span>·</span>
-      <span>9 min read</span>
+      <span>7 min read</span>
     </div>
   </div>
 
@@ -67,6 +67,20 @@
     </p>
 
     <img src="../images/wide-vs-cross-table-comparison.png" alt="Qlik Performance Advisor showing two apps: wide table at 502 MiB / 5,000,000 rows and cross table at 903 MiB / 45,000,000 rows, both with 10 objects" />
+
+    <p>
+      The data model view makes the structural difference concrete. The wide table has 20 fields and
+      5 million rows:
+    </p>
+
+    <img src="../images/wide-table-data-model.png" alt="Qlik data model view of the wide table — Transactions table with 20 fields including individual Revenue, Quantity, MarginRate, GrossMargin and other measure columns, 5,000,000 rows" />
+
+    <p>
+      The cross table has only 8 fields — the same dimensions plus
+      <code>MeasureName</code> and <code>MeasureValue</code> — but 45 million rows:
+    </p>
+
+    <img src="../images/cross-table-data-model.png" alt="Qlik data model view of the cross table — Transactions table with 8 fields: TransID, Number, Dimension1–3, TransactionDate, MeasureName, MeasureValue, 45,000,000 rows" />
 
     <p>
       The data was generated entirely in script — no source file needed. The wide table is a straight

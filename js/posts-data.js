@@ -24,7 +24,7 @@ const POSTS = [
     category: 'scripts',
     date: '2026-04-24',
     file: 'posts/wide-vs-cross-table-benchmark.html',
-    readTime: 9,
+    readTime: 7,
   },
   {
     id: 'outer-set-master-measures',
