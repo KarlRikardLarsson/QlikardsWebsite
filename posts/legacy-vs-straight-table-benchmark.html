@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Legacy Table vs Straight Table: Not Just Features — Performance Too — Qlikard</title>
+  <meta name="post-id" content="legacy-vs-straight-table-benchmark" />
+  <meta name="post-category" content="viz" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2316a34a'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='white' text-anchor='middle'>Q</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+      <li>
+        <a class="nav-icon-link" href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener" aria-label="LinkedIn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+            <rect x="2" y="9" width="4" height="12"/>
+            <circle cx="4" cy="4" r="2"/>
+          </svg>
+        </a>
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag viz">Visualizations</span>
+    <h1 class="post-title">Legacy Table vs Straight Table: Not Just Features — Performance Too</h1>
+    <div class="post-meta-bar">
+      <span>April 24, 2026</span>
+      <span>·</span>
+      <span>5 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      Most people already know they should use the Straight Table for new development — it supports
+      better conditional styling, and is the direction Qlik is investing in. But
+      there is a second reason that gets less attention: it is also faster. I noticed a 0.2-second
+      gap on a 5-million-row app, wondered if it scaled, and tested again at 50 million rows. It
+      does scale — and the 2-second gap at that size is hard to ignore.
+    </p>
+
+    <h2>The test setup</h2>
+
+    <p>
+      Two apps, same data model, same expressions. Each app contained two sheets with 10 table
+      objects each — one sheet built entirely with the legacy table, one built entirely with the
+      straight table. The same set of measures and dimensions was used on both sheets, so any
+      difference in load time comes purely from the visualization engine, not the data or expressions.
+    </p>
+
+    <p>
+      The small app used 5 million rows (502 MiB). The large app used 50 million rows (4.6 GiB),
+      generated with the same AutoGenerate script scaled up by 10×. Performance was measured using
+      Qlik's built-in Performance Advisor on a Standard-20 engine.
+    </p>
+
+    <img src="../images/legacy-vs-straight-apps.png" alt="Qlik Performance Advisor showing two apps: large app at 4.6 GiB / 50,000,000 rows with 20 objects, and small app at 502 MiB / 5,000,000 rows with 20 objects" />
+
+    <h2>The results</h2>
+
+    <p>
+      At 5 million rows the difference is small but consistent — 0.2 seconds across 10 objects:
+    </p>
+
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Table type</th>
+          <th>App size</th>
+          <th>Rows</th>
+          <th>Initial load</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Legacy Table</td>
+          <td>502 MiB</td>
+          <td>5,000,000</td>
+          <td class="ok">2.5 s</td>
+        </tr>
+        <tr>
+          <td>Straight Table</td>
+          <td>502 MiB</td>
+          <td>5,000,000</td>
+          <td class="good">2.3 s</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <img src="../images/legacy-vs-straight-5m.png" alt="Performance Advisor results for the 5M row app — Legacy Table sheet: 2.5 s, Straight Table sheet: 2.3 s, 10 objects each" />
+
+    <p>
+      At 50 million rows the proportional gap is about the same (~9%), but the absolute difference
+      grows to 2 seconds — which is very noticeable when a user opens a sheet:
+    </p>
+
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Table type</th>
+          <th>App size</th>
+          <th>Rows</th>
+          <th>Initial load</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Legacy Table</td>
+          <td>4.6 GiB</td>
+          <td>50,000,000</td>
+          <td class="bad">21.8 s</td>
+        </tr>
+        <tr>
+          <td>Straight Table</td>
+          <td>4.6 GiB</td>
+          <td>50,000,000</td>
+          <td class="ok">19.8 s</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <img src="../images/legacy-vs-straight-50m.png" alt="Performance Advisor results for the 50M row app — Legacy Table sheet: 21.8 s, Straight Table sheet: 19.8 s, 10 objects each" />
+
+    <div class="tip-box">
+      The proportional gain is ~9% at both data sizes, which means the overhead scales linearly
+      with the amount of data being rendered. On large apps the absolute cost becomes significant.
+    </div>
+
+
+    <h2>Verdict</h2>
+
+    <p>
+      The straight table is the right choice for two independent reasons: it has better features,
+      and it renders faster. On large apps the performance gap becomes user-visible. If your sheets
+      are already slow and you have legacy tables on them, migrating is one of the easier wins
+      available — no data model changes, no script changes, just replacing the chart type and
+      rewiring your expressions.
+    </p>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <span class="footer-brand">by <strong>Qlikard</strong> — Rikard Larsson</span>
+    <div class="footer-links">
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision</a>
+      <a href="../about.html">About</a>
+    </div>
+    <span class="footer-copy">© 2026</span>
+  </div>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>
