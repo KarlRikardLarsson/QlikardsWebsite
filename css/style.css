@@ -441,6 +441,14 @@ nav {
 .post-content li { margin-bottom: 0.35rem; }
 .post-content strong { color: var(--green); font-weight: 600; }
 .post-content em { color: var(--c-scripts); font-style: normal; }
+.post-content img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  border-radius: var(--radius);
+  margin: 1.5rem 0;
+  border: 1px solid var(--border);
+}
 
 .post-content pre {
   background: var(--surface);

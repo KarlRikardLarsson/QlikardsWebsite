@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wide vs Cross Table in Qlik: A Real Performance Test at 5 Million Rows — Qlikard</title>
+  <meta name="post-id" content="wide-vs-cross-table-benchmark" />
+  <meta name="post-category" content="scripts" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2316a34a'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='white' text-anchor='middle'>Q</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+      <li>
+        <a class="nav-icon-link" href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener" aria-label="LinkedIn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+            <rect x="2" y="9" width="4" height="12"/>
+            <circle cx="4" cy="4" r="2"/>
+          </svg>
+        </a>
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag scripts">Scripts</span>
+    <h1 class="post-title">Wide vs Cross Table in Qlik: A Real Performance Test at 5 Million Rows</h1>
+    <div class="post-meta-bar">
+      <span>April 24, 2026</span>
+      <span>·</span>
+      <span>9 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      In Power BI, the standard advice for performance is to <em>unpivot your fact table</em> — one
+      <code>MeasureName</code> column and one <code>MeasureValue</code> column, making the table very
+      tall and narrow rather than wide. I wanted to test whether that advice translates to Qlik, so I
+      ran both models against the same 5 million rows and measured actual sheet load times.
+    </p>
+
+    <h2>The two models</h2>
+
+    <p>
+      The <strong>wide table</strong> is the natural Qlik structure: one column per measure, 5 million
+      rows. In this test that produced a 502 MiB app with 10 objects on the sheet.
+    </p>
+
+    <p>
+      The <strong>cross table</strong> (Qlik's term for an unpivoted fact table) uses the
+      <code>CROSSTABLE</code> prefix to pivot all measure columns into two fields —
+      <code>MeasureName</code> and <code>MeasureValue</code>. With 9 measures and 5 million source rows,
+      this produced 45 million rows and a 903 MiB app — nearly twice the storage footprint.
+    </p>
+
+    <img src="../images/wide-vs-cross-table-comparison.png" alt="Qlik Performance Advisor showing two apps: wide table at 502 MiB / 5,000,000 rows and cross table at 903 MiB / 45,000,000 rows, both with 10 objects" />
+
+    <p>
+      The data was generated entirely in script — no source file needed. The wide table is a straight
+      <code>AutoGenerate</code> with randomised dimensions and measures:
+    </p>
+
+<pre><code>SET vRecordCount = 5000000;
+
+Transactions:
+Load
+    IterNo()                                                    as TransLineID,
+    RecNo()                                                     as TransID,
+    mod(RecNo(),26)+1                                           as Number,
+    chr(Floor(26*Rand())+65)                                    as Dimension1,
+    chr(Floor(26*Rand())+97)                                    as Dimension2,
+    chr(Floor(26*Rand())+pick(round(rand())+1,65,97))
+       &amp;chr(Floor(26*Rand())+pick(round(rand())+1,65,97))
+       &amp;chr(Floor(26*Rand())+pick(round(rand())+1,65,97))
+       &amp;chr(Floor(26*Rand())+pick(round(rand())+1,65,97))       as Dimension3,
+    Hash128(Rand())                                             as Dimension4,
+    Date(Floor(Today()-Rand()*365*5))                           as TransactionDate,
+    round(1000000*Rand(),0.01)                                  as Revenue,
+    Round(1000*Rand()*Rand())                                   as Quantity,
+    Round(Rand()*Rand()*Rand(),0.00001)                         as MarginRate,
+    round(1000000*Rand(),0.01)
+        * Round(Rand()*Rand()*Rand(),0.00001)                   as GrossMargin,
+    Round(Rand()*500 + 50, 0.01)                                as UnitCost,
+    Round((1000000*Rand()) - (Rand()*500 + 50)
+        * Round(1000*Rand()*Rand()), 0.01)                      as NetProfit,
+    Round(Rand() * 365)                                         as DaysToClose,
+    If(Round(Rand()*10) > 5, 1, 0)                              as IsConverted,
+    Round(Rand() * 100, 0.1)                                    as SatisfactionScore
+Autogenerate $(vRecordCount);</code></pre>
+
+    <p>
+      For the cross table app, you can't apply <code>CROSSTABLE</code> directly to an
+      <code>AutoGenerate</code> — the prefix works by reading column headers from a source, which
+      AutoGenerate doesn't produce. The clean approach is to generate the wide table first, then
+      derive the cross table from it with a RESIDENT load:
+    </p>
+
+<pre><code>// Step 1 — generate the wide table exactly as above
+// Step 2 — unpivot it into MeasureName / MeasureValue
+
+CROSSTABLE(MeasureName, MeasureValue, 6)
+Transactions_Cross:
+LOAD
+    TransID,
+    TransactionDate,
+    Dimension1,
+    Dimension2,
+    Dimension3,
+    Dimension4,
+    Revenue,
+    Quantity,
+    MarginRate,
+    GrossMargin,
+    UnitCost,
+    NetProfit,
+    DaysToClose,
+    IsConverted,
+    SatisfactionScore
+RESIDENT Transactions;
+
+DROP TABLE Transactions;</code></pre>
+
+    <p>
+      The number <code>6</code> tells Qlik how many leading columns to keep as plain dimensions —
+      TransID, TransactionDate, and the four Dimension fields. Everything after that gets pivoted
+      into <code>MeasureName</code> / <code>MeasureValue</code> pairs, turning 5 million rows
+      into 45 million.
+    </p>
+
+    <h2>How set analysis was used</h2>
+
+    <p>
+      To make the test meaningful, the sheet was not just a plain sum per measure. It was organised
+      into one table per measure group, each table showing the same metric through several set analysis
+      lenses side by side. The goal was to stress-test how both models handle complex expressions, not
+      just simple aggregations.
+    </p>
+
+    <p>
+      Here is what each measure group demonstrated:
+    </p>
+
+    <ul>
+      <li>
+        <strong>Revenue</strong> — five variants: plain <code>Sum(Revenue)</code>, a rolling 365-day
+        filter using a dynamic date expression, a current-year filter using
+        <code>YearStart(Today())</code>, a hard dimension filter locking
+        <code>Dimension1={'A'}</code>, and <code>{1}</code> to ignore all selections and always return
+        the full dataset total.
+      </li>
+      <li>
+        <strong>Quantity (QTY)</strong> — same time-filter pattern, plus a value-range filter
+        excluding zero-quantity rows with <code>Quantity={">0"}</code> and a dimension filter on
+        <code>Dimension2={'a'}</code>.
+      </li>
+      <li>
+        <strong>Margin Rate (MR)</strong> — demonstrated averaging with set analysis rather than
+        summing, including a threshold filter keeping only rows where
+        <code>MarginRate > 0.5</code>, which nearly quintupled the average from 0.12 to 0.61 — exactly
+        as expected.
+      </li>
+      <li>
+        <strong>Gross Margin (GM)</strong> — introduced the prior-year pattern using
+        <code>YearStart</code> and <code>YearEnd</code> on <code>Today()-365</code>, alongside the
+        <code>{1&lt;Dimension1={...}&gt;}</code> pattern that overrides all current selections except
+        the one you explicitly define.
+      </li>
+      <li>
+        <strong>Unit Cost (UC) and Net Profit (NP)</strong> — showed how the same date-range and
+        value-threshold patterns apply equally to <code>Avg</code> and <code>Sum</code> aggregations.
+        NP also added a ratio measure — Net Profit divided by Revenue — combining two separate set
+        analysis expressions in a single formula.
+      </li>
+      <li>
+        <strong>Days to Close (DTC)</strong> — split the population into fast deals
+        (<code>&lt;30</code> days) and slow deals (<code>&gt;=180</code> days), making it easy to
+        compare the two segments side by side without any filter pane selections.
+      </li>
+      <li>
+        <strong>Is Converted (IC)</strong> — showed both the raw count and the conversion rate as a
+        ratio, with a <code>{1}</code> benchmark column so the current-selection rate could always be
+        compared against the full-population baseline.
+      </li>
+      <li>
+        <strong>Satisfaction Score (SS)</strong> — used threshold filters for high
+        (<code>&gt;= 80</code>) and low (<code>&lt; 50</code>) scores, plus a count of
+        high-satisfaction transactions — showing that set analysis works equally well inside
+        <code>Count()</code> as inside <code>Avg()</code> or <code>Sum()</code>.
+      </li>
+    </ul>
+
+
+    <h2>Set analysis in the cross table model</h2>
+
+    <p>
+      In the wide table, a filtered Revenue measure looks like this:
+    </p>
+
+<pre><code>Sum({&lt;TransactionDate={"&gt;=$(=Date(Today()-365))"}&gt;} Revenue)</code></pre>
+
+    <p>
+      In the cross table, all numeric values share a single <code>MeasureValue</code> field, so you
+      must always filter by <code>MeasureName</code> first:
+    </p>
+
+<pre><code>Sum({&lt;MeasureName={'Revenue'}, TransactionDate={"&gt;=$(=Date(Today()-365))"}&gt;} MeasureValue)</code></pre>
+
+    <p>
+      The pattern holds for every aggregation — just prepend the <code>MeasureName</code> filter.
+      The expressions are slightly more verbose, but structurally identical. The cross table sheet
+      showed the same values as the wide table in every column.
+    </p>
+
+    <img src="../images/cross-table-sheet.png" alt="Same sheet layout in the cross table app — identical numbers across all nine measure groups, confirming the set analysis expressions produce the same results" />
+
+    <h2>The performance results</h2>
+
+    <p>
+      Both apps were evaluated using Qlik's built-in Performance Advisor on a Standard-20 engine.
+      Initial sheet load time with 10 objects:
+    </p>
+
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th>App size</th>
+          <th>Rows</th>
+          <th>Initial load</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Wide table</td>
+          <td>502 MiB</td>
+          <td>5,000,000</td>
+          <td class="good">2.8 s</td>
+        </tr>
+        <tr>
+          <td>Cross table</td>
+          <td>903 MiB</td>
+          <td>45,000,000</td>
+          <td class="bad">5.2 s</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>
+      The wide table is smaller, holds fewer rows, and renders the sheet 46% faster. The cross table
+      costs nearly twice the RAM and is significantly slower despite the engine having fewer distinct
+      measure columns to navigate. Both apps were flagged clean: zero caching problems, zero
+      single-threaded performance issues, zero memory limit violations.
+    </p>
+
+    <img src="../images/cross-table-performance.png" alt="Wide table Performance Advisor results: 2.8 s initial sheet load, 0 caching problems, 0 single-threaded issues, 0 memory limit violations" />
+    <img src="../images/wide-table-performance.png" alt="Cross table Performance Advisor results: 5.2 s initial sheet load, 0 caching problems, 0 single-threaded issues, 0 memory limit violations" />
+
+ 
+
+    <div class="tip-box">
+      If you are migrating a data model from Power BI to Qlik, unpivoted fact tables are worth
+      reviewing. The pattern that improves performance in one engine can hurt it in the other.
+    </div>
+
+    <h2>Verdict</h2>
+
+    <p>
+      The Power BI best practice of unpivoting your fact table does <strong>not</strong> translate
+      to Qlik. The cross table model is heavier on RAM, slower to render, and harder to write
+      expressions for — all without any compensating benefit on the Qlik engine. The wide table
+      wins on every dimension: smaller app, faster sheet, simpler formulas.
+    </p>
+
+    <p>
+      The result makes sense once you understand that the two engines have fundamentally different
+      architectures. VertiPaq and DAX are designed around filter context and column compression in
+      ways that favour a single dense value column. Qlik's associative engine is designed around
+      per-field resolution, which makes dedicated columns per measure the natural and faster choice.
+      Same problem, different engines, opposite answers.
+    </p>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <span class="footer-brand">by <strong>Qlikard</strong> — Rikard Larsson</span>
+    <div class="footer-links">
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision</a>
+      <a href="../about.html">About</a>
+    </div>
+    <span class="footer-copy">© 2026</span>
+  </div>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

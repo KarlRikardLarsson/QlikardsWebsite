@@ -18,6 +18,15 @@ const CATEGORIES = {
 
 const POSTS = [
   {
+    id: 'wide-vs-cross-table-benchmark',
+    title: 'Wide vs Cross Table in Qlik: A Real Performance Test at 5 Million Rows',
+    excerpt: 'Power BI says unpivot your fact table for performance. Does that advice translate to Qlik? I tested both models — wide table (502 MiB, 5M rows) vs cross table (903 MiB, 45M rows) — with complex set analysis on 10 objects. The wide table won: smaller, faster, and simpler to write expressions for.',
+    category: 'scripts',
+    date: '2026-04-24',
+    file: 'posts/wide-vs-cross-table-benchmark.html',
+    readTime: 9,
+  },
+  {
     id: 'outer-set-master-measures',
     title: 'Outer Set Expressions on Master Measures — One Source of Truth',
     excerpt: 'One base master measure, outer set expressions to inject context. Filter by P&L structure lines, apply YTD, or combine both — all referencing the same definition. Change it once, everything follows. Includes the variable-function formatting pattern with locale-aware separators.',
