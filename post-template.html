@@ -19,6 +19,7 @@
          category: 'scripts',   // scripts | viz | automate | general
          date: '2026-04-10',    // YYYY-MM-DD
          file: 'posts/your-post-slug.html',
+         readTime: 5,
        },
 
     That's it! The homepage will pick it up automatically.
@@ -27,7 +28,7 @@
   <title>Post Title — Qlikard</title>
   <meta name="post-id" content="your-post-slug" />
   <meta name="post-category" content="scripts" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🟢</text></svg>" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231F8B4C'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='%23FAF7F2' text-anchor='middle'>Q</text></svg>" />
   <link rel="stylesheet" href="../css/style.css" />
 </head>
 <body>
@@ -38,6 +39,15 @@
     <ul class="nav-links">
       <li><a href="../index.html">Home</a></li>
       <li><a href="../about.html">About</a></li>
+      <li>
+        <a class="nav-icon-link" href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener" aria-label="LinkedIn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+            <rect x="2" y="9" width="4" height="12"/>
+            <circle cx="4" cy="4" r="2"/>
+          </svg>
+        </a>
+      </li>
     </ul>
   </div>
 </nav>
@@ -53,7 +63,7 @@
     <h1 class="post-title">Your Post Title Goes Here</h1>
 
     <div class="post-meta-bar">
-      <span>📅 April 10, 2026</span>
+      <span>April 10, 2026</span>
       <span>·</span>
       <span>5 min read</span>
     </div>
@@ -70,7 +80,7 @@
     <h2>Section Heading</h2>
     <p>Your content here. Use <code>inline code</code> for field names, function names, etc.</p>
 
-    <pre><code>// Code blocks look like this
+<pre><code>// Code blocks look like this
 LET vMyVariable = 5;
 
 FOR i = 1 to $(vMyVariable)
@@ -80,7 +90,7 @@ NEXT i</code></pre>
     <p>Explanation of the code above...</p>
 
     <div class="tip-box">
-      Put a quick tip or warning here. The tip-box class adds the 💡 icon automatically.
+      Put a quick tip or warning here. The "Tip — " prefix is added automatically by CSS.
     </div>
 
     <h2>Another Section</h2>
@@ -102,7 +112,15 @@ NEXT i</code></pre>
 </main>
 
 <footer>
-  <p>Built with ❤️ by <strong style="color:var(--green)">Qlikard</strong></p>
+  <div class="footer-inner">
+    <span class="footer-brand">by <strong>Qlikard</strong> — Rikard Larsson</span>
+    <div class="footer-links">
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision</a>
+      <a href="../about.html">About</a>
+    </div>
+    <span class="footer-copy">© 2026</span>
+  </div>
 </footer>
 
 <script src="../js/posts-data.js"></script>
