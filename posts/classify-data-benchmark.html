@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Classifying Data in Qlik: Class() and 5 Other Methods, Benchmarked — Qlikard</title>
+  <meta name="post-id" content="classify-data-benchmark" />
+  <meta name="post-category" content="scripts" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2316a34a'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='white' text-anchor='middle'>Q</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+      <li>
+        <a class="nav-icon-link" href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener" aria-label="LinkedIn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+            <rect x="2" y="9" width="4" height="12"/>
+            <circle cx="4" cy="4" r="2"/>
+          </svg>
+        </a>
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag scripts">Scripts</span>
+    <h1 class="post-title">Classifying Data in Qlik: Class() and 5 Other Methods, Benchmarked</h1>
+    <div class="post-meta-bar">
+      <span>June 15, 2026</span>
+      <span>·</span>
+      <span>8 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      Bucketing a continuous value into bands — revenue tiers, age groups, score ranges — is one of
+      the most common things you'll do in a load script. Qlik even ships a dedicated function for it:
+      <code>Class()</code>. But it's far from the only way, and it isn't the fastest. I lined up six
+      different methods, ran them against <strong>15 million rows</strong>, and timed each one.
+    </p>
+
+    <p>
+      The conclusion up front: the method you reach for matters less for correctness than for
+      <em>maintainability</em> — but there is one method you should avoid on large data, and the
+      built-in function is squarely in the middle of the pack.
+    </p>
+
+    <h2>The six methods</h2>
+
+    <p>
+      The task: classify a <code>Revenue</code> value (ranging 0–1M) into bands of a fixed width.
+      Here are the six approaches, all producing the same buckets.
+    </p>
+
+    <h3>1. Class() — the built-in</h3>
+
+    <p>
+      Qlik's purpose-built function. Pass the value and the bucket width, and it returns a dual
+      whose text is the range (e.g. <code>200000 &lt;= x &lt; 400000</code>) and whose number is
+      the lower bound.
+    </p>
+
+<pre><code>LOAD
+    TransID,
+    Class(Revenue, 200000) AS RevClass
+RESIDENT Transactions;</code></pre>
+
+    <h3>2. Floor / Round arithmetic</h3>
+
+    <p>
+      Do the maths yourself. <code>Floor(Revenue/width)</code> gives the bucket index; multiply back
+      out to build a readable label, and wrap it in a <code>Dual()</code> so it still sorts numerically.
+    </p>
+
+<pre><code>LOAD
+    TransID,
+    Dual(Num(Floor(Revenue/200000)*200000,'#,##0') &amp; ' - ' &amp;
+         Num(Floor(Revenue/200000)*200000+200000,'#,##0'),
+         Floor(Revenue/200000)) AS RevClass
+RESIDENT Transactions;</code></pre>
+
+    <h3>3. Nested If()</h3>
+
+    <p>
+      The brute-force approach everyone writes first. Readable for a handful of bands, painful past that.
+    </p>
+
+<pre><code>LOAD
+    TransID,
+    If(Revenue&lt;200000,'Very Low',
+      If(Revenue&lt;400000,'Low',
+      If(Revenue&lt;600000,'Medium',
+      If(Revenue&lt;800000,'High','Very High')))) AS RevClass
+RESIDENT Transactions;</code></pre>
+
+    <h3>4. Pick()</h3>
+
+    <p>
+      Compute the bucket index with <code>Floor</code>, clamp it with <code>RangeMin</code> so the top
+      band catches everything above the last threshold, then <code>Pick()</code> the matching label.
+    </p>
+
+<pre><code>LOAD
+    TransID,
+    Pick(RangeMin(Floor(Revenue/200000)+1, 5),
+         'Very Low','Low','Medium','High','Very High') AS RevClass
+RESIDENT Transactions;</code></pre>
+
+    <h3>5. ApplyMap()</h3>
+
+    <p>
+      Keep the bucket index calculation, but resolve the label from a mapping table. The band
+      definitions live in one tidy <code>INLINE</code> block, and the third argument handles the
+      catch-all for anything above the top bucket.
+    </p>
+
+<pre><code>BucketMap:
+MAPPING LOAD * INLINE [
+    idx, label
+    0, Very Low
+    1, Low
+    2, Medium
+    3, High
+    4, Very High
+];
+
+LOAD
+    TransID,
+    ApplyMap('BucketMap', Floor(Revenue/200000), 'Very High') AS RevClass
+RESIDENT Transactions;</code></pre>
+
+    <h3>6. IntervalMatch</h3>
+
+    <p>
+      The relational approach: define a <code>Bins</code> table with lower/upper bounds, then use
+      <code>IntervalMatch</code> to associate every revenue value with the band it falls into, and
+      join the label back on.
+    </p>
+
+<pre><code>Bins:
+LOAD * INLINE [
+    RevClass,    LowerBound, UpperBound
+    Very Low,    -1E64,      200000
+    Low,         200000,     400000
+    Medium,      400000,     600000
+    High,        600000,     800000
+    Very High,   800000,     1E64
+];
+
+Tmp_Test:
+IntervalMatch(Revenue)
+LOAD LowerBound, UpperBound RESIDENT Bins;
+
+LEFT JOIN (Tmp_Test)
+LOAD LowerBound, UpperBound, RevClass RESIDENT Bins;</code></pre>
+
+    <h2>Test setup</h2>
+
+    <p>
+      All six ran on the same <strong>15 million row</strong> <code>Transactions</code> table via
+      RESIDENT loads, each wrapped in a small <code>sLog</code> timing subroutine that records start
+      and end timestamps. <code>Revenue</code> was a random value between 0 and 1,000,000. I ran the
+      whole battery twice: once splitting into <strong>5 categories</strong> (200k-wide bands) and
+      once into <strong>10 categories</strong> (100k-wide bands), to see whether the number of bands
+      changed the ranking.
+    </p>
+
+    <h2>Results — 5 categories</h2>
+
+    <img src="../images/classification-benchmark-5-categories.png" alt="Bar chart of average classification time across six methods at 5 categories: IntervalMatch ~28s, Floor/Round arithmetic ~4.0s, Class() ~3.7s, ApplyMap() ~2.0s, Pick() ~1.8s, Nested If() ~1.5s" />
+
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Method</th>
+          <th>Avg time</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Nested If()</td>
+          <td class="good">~1.5 s</td>
+          <td>Fastest</td>
+        </tr>
+        <tr>
+          <td>Pick()</td>
+          <td class="good">~1.8 s</td>
+          <td></td>
+        </tr>
+        <tr>
+          <td>ApplyMap()</td>
+          <td class="good">~2.0 s</td>
+          <td></td>
+        </tr>
+        <tr>
+          <td>Class()</td>
+          <td class="ok">~3.7 s</td>
+          <td>The built-in</td>
+        </tr>
+        <tr>
+          <td>Floor / Round arithmetic</td>
+          <td class="ok">~4.0 s</td>
+          <td></td>
+        </tr>
+        <tr>
+          <td>IntervalMatch</td>
+          <td class="bad">~28 s</td>
+          <td>~15× slower than the pack</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Results — 10 categories</h2>
+
+    <img src="../images/classification-benchmark-10-categories.png" alt="Bar chart of average classification time across six methods at 10 categories: IntervalMatch ~26s, Floor/Round arithmetic ~4.3s, Class() ~3.2s, ApplyMap() ~2.3s, Nested If() ~2.0s, Pick() ~1.7s" />
+
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Method</th>
+          <th>Avg time</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Pick()</td>
+          <td class="good">~1.7 s</td>
+          <td>Fastest</td>
+        </tr>
+        <tr>
+          <td>Nested If()</td>
+          <td class="good">~2.0 s</td>
+          <td>Slower than at 5 bands</td>
+        </tr>
+        <tr>
+          <td>ApplyMap()</td>
+          <td class="good">~2.3 s</td>
+          <td></td>
+        </tr>
+        <tr>
+          <td>Class()</td>
+          <td class="ok">~3.2 s</td>
+          <td>The built-in</td>
+        </tr>
+        <tr>
+          <td>Floor / Round arithmetic</td>
+          <td class="ok">~4.3 s</td>
+          <td></td>
+        </tr>
+        <tr>
+          <td>IntervalMatch</td>
+          <td class="bad">~26 s</td>
+          <td>Again, by far the slowest</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>What stands out</h2>
+
+    <p>
+      <strong>IntervalMatch is in a league of its own — the wrong league.</strong> At roughly
+      27 seconds it's about 15× slower than everything else, and it barely moved between 5 and 10
+      bands. That's expected: <code>IntervalMatch</code> compares every one of the 15 million revenue
+      values against every interval, then materialises a join. It's a genuinely relational operation
+      with the cost to match. Reserve it for cases where the bands genuinely overlap or are
+      data-driven and can't be expressed arithmetically — never for simple fixed-width bucketing.
+    </p>
+
+    <div class="tip-box">
+      In fairness, this isn't an even fight for IntervalMatch. The other five methods compute the
+      class in a single inline pass over the fact table; IntervalMatch here runs an interval join
+      across all 15M rows and then a separate <code>LEFT JOIN</code> into a new resident table. In a
+      real model you'd typically resolve the bands against the <em>distinct</em> revenue values once
+      and <code>LEFT JOIN</code> the result straight onto the fact — not build a fresh resident copy
+      per row. Where revenue has far fewer distinct values than rows, that alone cuts the cost
+      substantially. Even with a fairer setup, though, it won't catch the arithmetic methods on
+      fixed-width bands — and that's not what it's for.
+    </div>
+
+    <p>
+      <strong>Pick() and Nested If() trade the top spot.</strong> Both stay near the bottom of the
+      chart. Notice that <code>Nested If()</code> got slower going from 5 to 10 bands (1.5 s → 2.0 s),
+      because each extra band is another comparison every row must walk through. <code>Pick()</code>
+      barely moved — its cost is one <code>Floor</code> and an array lookup regardless of how many bands
+      there are. On a band count of 20 or 50, that gap only widens.
+    </p>
+
+    <p>
+      <strong>Class() is unremarkable.</strong> The dedicated function lands mid-pack at ~3–4 seconds,
+      roughly twice the cost of the leaders. It's not slow, and it's wonderfully concise, but it carries
+      the overhead of producing a fully-formatted dual range string for every row.
+    </p>
+
+    <div class="tip-box">
+      The whole field of "fast" methods spans about 1.5 s to 4 s across 15 million rows. Unless you're
+      bucketing in a tight loop or on hundreds of millions of rows, that spread is small enough that
+      readability should usually win the argument — with the one hard exception of IntervalMatch.
+    </div>
+
+    <h2>My pick: ApplyMap()</h2>
+
+    <p>
+      Performance isn't the only axis, and for everyday work it's rarely the deciding one. My personal
+      preference is <code>ApplyMap()</code>, and the benchmark backs that up as a sensible default — it
+      sits comfortably among the fastest three at ~2 seconds, just a hair behind <code>Pick()</code>.
+    </p>
+
+    <p>
+      What makes it the nicest to live with is the separation of definition from logic. Your band labels
+      sit in one clean <code>INLINE</code> block. Adding, renaming, or re-bounding a band is a one-line
+      edit in an obvious place — no re-counting the nesting on a wall of <code>If()</code>s, no keeping a
+      positional <code>Pick()</code> list in sync with anything. You can even load that mapping from a QVD
+      or spreadsheet and let the business own the band definitions without touching the script.
+    </p>
+
+    <div class="tip-box">
+      With <code>ApplyMap()</code>, always set the third argument (the default). It's your catch-all for
+      values above the top bucket — and a safety net against a key your map doesn't cover silently
+      returning null.
+    </div>
+
+    <h2>Bottom line</h2>
+
+    <ul>
+      <li><strong>Never use IntervalMatch for fixed-width bands.</strong> It's an order of magnitude slower and the wrong tool.</li>
+      <li><strong>Pick() is the raw-speed winner</strong> and scales best as band count grows.</li>
+      <li><strong>Class() is fine but unremarkable</strong> — concise, mid-pack speed.</li>
+      <li><strong>ApplyMap() is the best all-rounder</strong> — near the top on speed, far ahead on readability and maintenance.</li>
+    </ul>
+
+    <p>
+      Reach for the built-in when you want a quick one-liner and don't care about the exact labels.
+      Reach for <code>ApplyMap()</code> when the bands will live in production and someone — maybe you,
+      a year from now — will need to change them.
+    </p>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <span class="footer-brand">by <strong>Qlikard</strong> — Rikard Larsson</span>
+    <div class="footer-links">
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision</a>
+      <a href="../about.html">About</a>
+    </div>
+    <span class="footer-copy">© 2026</span>
+  </div>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

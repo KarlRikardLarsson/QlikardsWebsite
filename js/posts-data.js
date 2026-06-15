@@ -18,6 +18,15 @@ const CATEGORIES = {
 
 const POSTS = [
   {
+    id: 'classify-data-benchmark',
+    title: 'Classifying Data in Qlik: Class() and 5 Other Methods, Benchmarked',
+    excerpt: 'Qlik ships a dedicated Class() function for bucketing values — but is it the best way? I benchmarked six methods on 15 million rows. IntervalMatch was ~15× slower than the pack, Pick() and Nested If() were fastest, and Class() landed mid-pack. My pick is ApplyMap(): near the top on speed, far ahead on readability.',
+    category: 'scripts',
+    date: '2026-06-15',
+    file: 'posts/classify-data-benchmark.html',
+    readTime: 8,
+  },
+  {
     id: 'legacy-vs-straight-table-benchmark',
     title: 'Legacy Table vs Straight Table: Not Just Features — Performance Too',
     excerpt: 'You already know to use the Straight Table for new features. Here\'s another reason: it\'s ~9% faster to render. At 5M rows the gap is 0.2 seconds. At 50M rows it\'s 2 seconds — user-visible on any large app.',
