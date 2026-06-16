@@ -18,6 +18,15 @@ const CATEGORIES = {
 
 const POSTS = [
   {
+    id: 'cicd-checks-qlik-automate',
+    title: 'CI/CD for Qlik Apps — Automated Quality Gates with Qlik Automate',
+    excerpt: 'Software teams never merge without a pipeline. Qlik apps rarely get the same treatment — but they can. Fire an automation on the App Published webhook and run real checks: validate the load script, catch a stray EXIT SCRIPT or hard-coded lib path with Python, flag apps over a size budget, and surface slow-rendering charts — opening a GitHub issue for each failure. Built on Qlik\'s own evaluation template.',
+    category: 'automate',
+    date: '2026-06-16',
+    file: 'posts/cicd-checks-qlik-automate.html',
+    readTime: 9,
+  },
+  {
     id: 'svg-variance-bars-in-table',
     title: 'Variance Bars in a Qlik Table with Inline SVG',
     excerpt: 'A ΔPL column that reads at a glance: green bars grow right when you beat plan, red bars grow left when you miss — both diverging from a centered baseline. One If() picks the direction, and Max/Min(Aggr()) keeps every bar on a shared, selection-aware scale. No extension needed.',

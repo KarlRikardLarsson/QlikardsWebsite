@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CI/CD for Qlik Apps — Automated Quality Gates with Qlik Automate — Qlikard</title>
+  <meta name="post-id" content="cicd-checks-qlik-automate" />
+  <meta name="post-category" content="automate" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2316a34a'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='white' text-anchor='middle'>Q</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+      <li>
+        <a class="nav-icon-link" href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener" aria-label="LinkedIn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+            <rect x="2" y="9" width="4" height="12"/>
+            <circle cx="4" cy="4" r="2"/>
+          </svg>
+        </a>
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag automate">Qlik Automate</span>
+    <h1 class="post-title">CI/CD for Qlik Apps — Automated Quality Gates with Qlik Automate</h1>
+    <div class="post-meta-bar">
+      <span>June 16, 2026</span>
+      <span>·</span>
+      <span>9 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      Software teams don't merge code without a pipeline checking it first — linting, tests, size
+      budgets, the lot. Qlik apps rarely get the same treatment, even though a bad reload or a
+      bloated app costs just as much. The good news: you already have everything you need to build a
+      quality gate. A webhook, the Qlik Cloud APIs, a Python code block, and a GitHub connector are
+      enough to turn "someone publishes an app" into "the app is automatically inspected, and if it
+      fails a check, an issue is filed."
+    </p>
+
+    <p>
+      This post walks through a working CI/CD automation that fires on publish and runs a handful of
+      checks — script validity, banned statements, hard-coded paths, app size, and render
+      performance — opening a GitHub issue for each failure. None of these checks are the point in
+      themselves; the point is the <em>pattern</em>. Once the skeleton is in place, the world is your
+      oyster: add whatever rule your team cares about.
+    </p>
+
+    <h2>Start from the template Qlik already built</h2>
+
+    <p>
+      You don't have to start from a blank canvas. Qlik ships a Change Control template called
+      <strong>"Do app evaluation and publish app"</strong> in the template picker. It already wires
+      up the app-evaluation block and the performance thresholds — exactly the fiddly part. Grab it
+      and bolt your own checks onto it.
+    </p>
+
+    <figure class="post-figure">
+      <img src="../images/cicd-automate-template-card.png" alt="Qlik Automate template card titled 'Do app evaluation and publish app' by Qlik, tagged Change Control" />
+      <figcaption>The pre-made template — a free head start on the performance-evaluation half.</figcaption>
+    </figure>
+
+    <h2>The trigger: run on every publish</h2>
+
+    <p>
+      Set the start block to <strong>Webhook</strong> run mode, connector
+      <strong>Qlik Cloud Services</strong>, event <strong>App Published</strong>. Now the automation
+      fires automatically whenever an app is published to a managed space — no schedule, no manual
+      run. You can filter by space and usage so it only watches the spaces you care about.
+    </p>
+
+    <figure class="post-figure">
+      <img src="../images/cicd-app-published-trigger.png" alt="App Published trigger configured with Webhook run mode and Qlik Cloud Services connector, followed by Settings, vThreshold and vResponseTime variable blocks, then Get App and Get Load Script" />
+      <figcaption>App Published → a few config variables → Get App and Get Load Script. The payload hands you the app ID to work with.</figcaption>
+    </figure>
+
+    <p>
+      The publish event payload contains the app's ID. From there, two Qlik Cloud Services blocks
+      give you everything the checks need: <strong>Get App</strong> (metadata — name, owner, size)
+      and <strong>Get Load Script</strong> (the full script text). A couple of variable blocks up top
+      hold your GitHub repo settings and the numeric thresholds, so tuning the pipeline never means
+      editing logic deep in the flow.
+    </p>
+
+    <h2>Check 1 — Is the load script even valid?</h2>
+
+    <p>
+      The cheapest, highest-value check: will the script reload at all? Qlik exposes a validation
+      endpoint, so you don't have to actually run anything. Use a <strong>Raw API Request</strong>
+      block:
+    </p>
+
+    <ul>
+      <li><strong>Path:</strong> <code>v1/apps/validatescript</code></li>
+      <li><strong>Method:</strong> <code>POST</code></li>
+      <li><strong>Body:</strong> key <code>script</code> → value from <code>Get Load Script &gt; qScript</code></li>
+    </ul>
+
+    <figure class="post-figure">
+      <img src="../images/cicd-validate-script.png" alt="Raw API Request block calling v1/apps/validatescript via POST with the load script in the body, flowing into List Repository Issues, a Condition, a Filter, and Create Issue" />
+      <figcaption>Validate the script via the API, then branch on whether it returned any errors.</figcaption>
+    </figure>
+
+    <p>
+      The endpoint returns a list of errors (empty if the script is clean). A <strong>Condition</strong>
+      branches on whether that list has anything in it. If it does — file an issue.
+    </p>
+
+    <h2>Filing issues without spamming the repo</h2>
+
+    <p>
+      Before every <strong>Create Issue</strong>, the automation runs a
+      <strong>List Repository Issues</strong> + <strong>Filter List</strong> pair to check whether an
+      open issue for this exact problem already exists. Only create a new one if the filtered list is
+      empty. This is the single most important habit in the whole pipeline — without the dedupe step,
+      a daily-published app with a standing problem would open a fresh issue every single day.
+    </p>
+
+    <figure class="post-figure">
+      <img src="../images/cicd-create-issue.png" alt="GitHub Create Issue block titled 'Reload Error' with a Markdown body describing the script validation failure, owner and repo pulled from the Settings variable" />
+      <figcaption>The Create Issue block — owner/repo come from the Settings variable, the title and body are built from the app name and the API's error output.</figcaption>
+    </figure>
+
+    <p>
+      The issue title is built from the app name (<code>Get App &gt; Attributes &gt; Name</code>) and
+      the body is GitHub-flavoured Markdown describing what failed — the validation messages parsed
+      straight out of the API response. A reviewer opening the repo sees exactly which app, and
+      exactly what's wrong.
+    </p>
+
+    <div class="tip-box">
+      Pull the GitHub <strong>owner</strong> and <strong>repo</strong> from a single
+      <code>Settings</code> variable object at the top of the automation, not hard-coded on each
+      block. When you point the pipeline at a different repo, you change it in one place.
+    </div>
+
+    <h2>Check 2 — A banned statement: EXIT SCRIPT</h2>
+
+    <p>
+      Some things are valid Qlik but should never reach production. The classic is a stray
+      <code>EXIT SCRIPT</code> a developer left in while debugging — the script "succeeds" but only
+      loads half the data. You can't catch this with the validator; you need to inspect the text.
+      A <strong>Custom Code</strong> block running Python does it.
+    </p>
+
+    <figure class="post-figure">
+      <img src="../images/cicd-exit-script-python.png" alt="Custom Code block set to Python 3.14 with Script and AppName inputs, containing a regex-based function strip_comments_keep_positions that blanks comments before searching for exit script" />
+      <figcaption>A Python block scans the script for an <em>active</em> EXIT SCRIPT — ignoring ones safely tucked inside comments or strings.</figcaption>
+    </figure>
+
+    <p>
+      The naïve version — <code>"exit script" in script</code> — produces false positives: it would
+      flag an <code>EXIT SCRIPT</code> sitting inside a comment, or the words appearing in a quoted
+      string. The block does it properly. It first blanks out every comment
+      (<code>//</code>, <code>/* */</code>, <code>REM … ;</code>) and string literal while
+      <em>preserving line positions</em>, then searches the cleaned text:
+    </p>
+
+<pre><code>import re
+
+EXIT_RE = re.compile(r'\bexit\s+script\b', re.IGNORECASE)
+
+# strip_comments_keep_positions() walks the script char by char,
+# tracking whether we're inside '…' "…" […] a // line comment,
+# a /* */ block, or a REM … ; comment — blanking those regions
+# (but keeping newlines) so keywords inside them never match.
+
+Script = inputs['Script']
+cleaned = strip_comments_keep_positions(Script)
+
+hits = []
+for m in EXIT_RE.finditer(cleaned):
+    line_no = Script.count('\n', 0, m.start()) + 1
+    hits.append({'line': line_no,
+                 'snippet': Script.splitlines()[line_no - 1].strip()})</code></pre>
+
+    <p>
+      It even splits the script on <code>///$tab</code> markers so the issue can report
+      <em>which tab and line</em> the offending statement is on, and it ignores a deliberate
+      <code>EXIT SCRIPT</code> that is the very last statement of the final tab (a common, legitimate
+      pattern). The output feeds the same dedupe-then-Create-Issue path as before.
+    </p>
+
+    <h2>Check 3 — Hard-coded lib paths</h2>
+
+    <p>
+      Another text-inspection check, same shape. A connection path should go through a variable so it
+      can differ between dev and prod — <code>lib://$(vDataPath)/sales.qvd</code>, not a literal
+      <code>lib://DataFiles/sales.qvd</code> baked into the script. A second Python block flags any
+      <code>lib://</code> path that ends in a data-file extension with no <code>$</code> variable
+      anywhere in it:
+    </p>
+
+<pre><code>DATA_EXT = r"(?:qvd|qvx|csv|tsv|txt|xls|xlsx|xlsm|json|xml|parquet|dat)"
+
+# A literal lib:// path ending in a data extension, with NO $ between
+# lib:// and the extension — so anything using $(vVar) is NOT flagged.
+HARDCODED_LIB = re.compile(
+    r"lib://[^'\"\]\)\($\r\n]*\." + DATA_EXT + r"\b", re.IGNORECASE)</code></pre>
+
+    <p>
+      Same comment-stripping pass first (so a commented-out example path doesn't trip it), same
+      issue-creation path after. Two checks, one reusable skeleton.
+    </p>
+
+    <h2>Check 4 — App size against a budget</h2>
+
+    <p>
+      Now metadata instead of script text. A <strong>Raw API Request</strong> to
+      <code>v1/apps/{appId}/data/metadata</code> (GET) returns the in-memory footprint of the app.
+      Compare it to a budget you set in a variable — say <strong>80% of a 5&nbsp;GB</strong> ceiling —
+      and open an issue when an app crosses it, before it becomes a reload failure or a slow,
+      memory-starved experience for users.
+    </p>
+
+    <figure class="post-figure">
+      <img src="../images/cicd-app-size-metadata.png" alt="Raw API Request 2 calling v1/apps/{id}/data/metadata via GET to read app size, with a condition and Create Issue branch, leading into a Do Evaluation block" />
+      <figcaption>Get App metadata → compare to the size threshold → issue if over budget. Then on into the performance evaluation.</figcaption>
+    </figure>
+
+    <h2>Check 5 — Slow-rendering visualizations</h2>
+
+    <p>
+      This is the part the Qlik template gives you for free. The <strong>Do Evaluation</strong> block
+      runs a full performance evaluation of the app and waits for it to finish, returning per-object
+      timings. Filter that result for any object whose response time exceeds your
+      <code>vResponseTimeSecondsThreshold</code>, collect the offenders, and — if there are any —
+      open an issue listing the slow charts.
+    </p>
+
+    <figure class="post-figure">
+      <img src="../images/cicd-do-evaluation.png" alt="Do Evaluation block running a performance evaluation, followed by a Filter List that collects cached objects exceeding the threshold and a condition that creates a GitHub issue when the list is non-empty" />
+      <figcaption>Do Evaluation → Filter List for objects over the response-time threshold → issue if the list isn't empty.</figcaption>
+    </figure>
+
+    <div class="tip-box">
+      <strong>Do Evaluation</strong> throws if an evaluation is already running or queued for the same
+      app. If you publish frequently, give it a sensible timeout and let the condition handle the
+      "already running" case gracefully rather than letting the whole automation error out.
+    </div>
+
+    <h2>The reusable pattern</h2>
+
+    <p>
+      Strip away the specifics and every check is the same five steps:
+    </p>
+
+    <ol>
+      <li><strong>Gather</strong> — read the script, metadata, or evaluation result.</li>
+      <li><strong>Test</strong> — an API call, a Python block, or a filter decides pass/fail.</li>
+      <li><strong>Dedupe</strong> — List Repository Issues + Filter to see if it's already reported.</li>
+      <li><strong>Branch</strong> — a Condition on "failed AND not already reported".</li>
+      <li><strong>Report</strong> — Create Issue with a clear, app-specific title and Markdown body.</li>
+    </ol>
+
+    <p>
+      That's the whole framework. Want to enforce a naming convention on master measures? A Python
+      block. Check that the app has a description and an owner? Read the metadata. Verify a
+      mandatory section-access table is present? Search the script. Each new rule is just another
+      Test step dropped into the same skeleton.
+    </p>
+
+    <h2>Bottom line</h2>
+
+    <ul>
+      <li><strong>Start from the Qlik "Do app evaluation and publish app" template</strong> — it hands you the performance-evaluation half for free.</li>
+      <li><strong>Trigger on the App Published webhook</strong> so checks run automatically on every publish, no schedule needed.</li>
+      <li><strong>Mix the tools:</strong> the validate-script API for reload validity, Python code blocks for text rules (EXIT SCRIPT, hard-coded paths), metadata for size, Do Evaluation for render speed.</li>
+      <li><strong>Always dedupe before Create Issue</strong> — list and filter existing issues first, or a recurring problem floods the repo.</li>
+      <li><strong>It's a skeleton, not a fixed recipe.</strong> Gather → test → dedupe → branch → report. Bolt on whatever your team should never ship.</li>
+    </ul>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <span class="footer-brand">by <strong>Qlikard</strong> — Rikard Larsson</span>
+    <div class="footer-links">
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision</a>
+      <a href="../about.html">About</a>
+    </div>
+    <span class="footer-copy">© 2026</span>
+  </div>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>
