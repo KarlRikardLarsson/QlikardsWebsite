@@ -18,6 +18,15 @@ const CATEGORIES = {
 
 const POSTS = [
   {
+    id: 'svg-variance-bars-in-table',
+    title: 'Variance Bars in a Qlik Table with Inline SVG',
+    excerpt: 'A ΔPL column that reads at a glance: green bars grow right when you beat plan, red bars grow left when you miss — both diverging from a centered baseline. One If() picks the direction, and Max/Min(Aggr()) keeps every bar on a shared, selection-aware scale. No extension needed.',
+    category: 'viz',
+    date: '2026-06-16',
+    file: 'posts/svg-variance-bars-in-table.html',
+    readTime: 7,
+  },
+  {
     id: 'classify-data-benchmark',
     title: 'Classifying Data in Qlik: Class() and 5 Other Methods, Benchmarked',
     excerpt: 'Qlik ships a dedicated Class() function for bucketing values — but is it the best way? I benchmarked six methods on 15 million rows. IntervalMatch was ~15× slower than the pack, Pick() and Nested If() were fastest, and Class() landed mid-pack. My pick is ApplyMap(): near the top on speed, far ahead on readability.',

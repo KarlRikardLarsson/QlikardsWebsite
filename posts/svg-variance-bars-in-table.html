@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Variance Bars in a Qlik Table with Inline SVG — Qlikard</title>
+  <meta name="post-id" content="svg-variance-bars-in-table" />
+  <meta name="post-category" content="viz" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2316a34a'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='white' text-anchor='middle'>Q</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+  <style>
+    /* ── Centered variance-bar demo ── */
+    .bar-demo {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin: 1.5rem 0;
+    }
+    .bar-demo-header {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--muted);
+    }
+    .bar-demo-row {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: 0.5rem;
+      align-items: center;
+      padding: 0.55rem 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .bar-demo-row:last-child { border-bottom: none; }
+    .bar-demo-name { font-size: 0.82rem; color: var(--text); }
+    .bar-svg-wrap { display: flex; align-items: center; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+      <li>
+        <a class="nav-icon-link" href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener" aria-label="LinkedIn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+            <rect x="2" y="9" width="4" height="12"/>
+            <circle cx="4" cy="4" r="2"/>
+          </svg>
+        </a>
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag viz">Visualizations</span>
+    <h1 class="post-title">Variance Bars in a Qlik Table with Inline SVG</h1>
+    <div class="post-meta-bar">
+      <span>June 16, 2026</span>
+      <span>·</span>
+      <span>7 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      A P&amp;L table that just lists Actual next to Plan makes you do the subtraction in your head.
+      Add a <strong>ΔPL</strong> column with a tiny bar that grows <em>right and green</em> when you
+      beat plan and <em>left and red</em> when you miss it, and the whole statement reads at a glance —
+      which lines helped, which hurt, and by how much relative to each other. No extension, just one
+      expression and an inline SVG.
+    </p>
+
+    <!-- IMAGE 1 — save to images/variance-bar-result.png -->
+    <figure class="post-figure">
+      <img src="../images/variance-bar-result.png" alt="Two Qlik variance columns, ΔPL and ΔPY, each showing green bars growing right for favourable lines and red bars growing left for unfavourable ones, diverging from a dashed vertical baseline" />
+      <figcaption>The same technique on two columns — ΔPL and ΔPY — bars diverging left (miss) or right (beat) from the baseline.</figcaption>
+    </figure>
+
+    <p>
+      This is the two-sided sibling of the
+      <a href="progress-bar-in-table.html">progress bar in a table</a> trick. Same core idea — an SVG
+      string rendered as an image in a column — but instead of a bar filling from the left, it
+      diverges from a baseline planted in the middle.
+    </p>
+
+    <h2>Prerequisite: Representation → Image</h2>
+
+    <p>
+      Exactly like the progress bar: open the column settings for the measure and switch
+      <strong>Representation</strong> from <em>Value</em> to <em>Image</em>. Without it, Qlik prints
+      the raw <code>data:image/svg+xml,...</code> string instead of drawing the bar. It's per column,
+      so set it on the ΔPL column specifically.
+    </p>
+
+    <h2>The idea: one baseline, two directions</h2>
+
+    <p>
+      The SVG canvas is 150&nbsp;units wide. I plant a 2px black <strong>baseline at x&nbsp;=&nbsp;80</strong>
+      — that's the zero line, the position of Plan. Everything is measured from there:
+    </p>
+
+    <ul>
+      <li><strong>Beat plan</strong> (Actual ≥ Plan): a green bar starts at <code>x = 82</code> and grows to the <em>right</em>, with the label after it.</li>
+      <li><strong>Miss plan</strong> (Actual &lt; Plan): a red bar <em>ends</em> at <code>x = 80</code> and grows to the <em>left</em>, with a right-aligned label before it.</li>
+    </ul>
+
+    <p>
+      A single outer <code>If([AC P&amp;L] &gt;= [PL P&amp;L], …, …)</code> picks which of the two SVGs to
+      emit. The colour and the direction switch together.
+    </p>
+
+    <div class="tip-box">
+      Each cell draws its own short 10px baseline, so there's no separate reference line to configure.
+      Stacked down the column with the table's row spacing between them, those little segments read as
+      a single <strong>dashed</strong> zero-line — which is exactly the effect you see in the image
+      above, and why the same expression works unchanged on any number of comparison columns (ΔPL,
+      ΔPY, and so on).
+    </div>
+
+    <h2>Scaling: the two variables</h2>
+
+    <p>
+      A bar is only meaningful if every row shares the same scale. The trick is to make the
+      <em>largest</em> variance across all rows fill the available 25px, and let every other bar
+      shrink proportionally. To know that maximum we need the biggest positive and the most negative
+      ΔPL across the whole dimension — and that's exactly what <code>Aggr()</code> gives us.
+    </p>
+
+    <p>
+      <code>Structure Line</code> is the dimension in the table (the P&amp;L rows). These two variables
+      compute the spread across all of them:
+    </p>
+
+<pre><code>// Largest favourable variance (most positive AC − PL)
+vCFPLP&amp;L  =  Max(Aggr([AC P&amp;L] - [PL P&amp;L], [Structure Line]))
+
+// Largest unfavourable variance (most negative AC − PL)
+vCFPLP&amp;L2 =  Min(Aggr([AC P&amp;L] - [PL P&amp;L], [Structure Line]))</code></pre>
+
+    <div class="tip-box">
+      <code>Aggr()</code> evaluates <code>[AC P&amp;L] - [PL P&amp;L]</code> once per <code>Structure Line</code>,
+      producing a virtual array of one variance per row. <code>Max()</code> / <code>Min()</code> then
+      collapse that array to the extremes — the longest green and the longest red bar the table will
+      ever need to draw. Because the variables recalculate with selections, the scale stays honest
+      when the user filters.
+    </div>
+
+    <h2>The expression</h2>
+
+    <p>
+      Set this as the ΔPL measure (Representation → Image). The two halves are mirror images of each
+      other — same maths, opposite direction.
+    </p>
+
+<pre><code>=If([AC P&amp;L] &gt;= [PL P&amp;L],
+
+  // ── Favourable: green bar grows RIGHT from the baseline ──
+  'data:image/svg+xml,&lt;svg xmlns="http://www.w3.org/2000/svg" height="10" width="150"&gt;'
+  &amp; '&lt;style&gt;.value { font: 7px serif; font-family:&amp;quot;Inter Regular&amp;quot;; fill: rgb(119, 200, 148); }&lt;/style&gt;'
+  &amp; '&lt;rect x="80" y="0" width="2" height="10" style="fill:rgb(0,0,0)"/&gt;'
+  &amp; '&lt;rect x="82" y="3" width="'
+       &amp; fabs([AC P&amp;L]-[PL P&amp;L]) / RangeMax($(vCFPLP&amp;L), 1) * 25
+     &amp; '" height="4" style="fill:rgb(119, 200, 148)"/&gt;'
+  &amp; '&lt;text x="'
+       &amp; (82 + fabs([AC P&amp;L]-[PL P&amp;L]) / RangeMax($(vCFPLP&amp;L), 1) * 25 + 2)
+     &amp; '" y="8" class="value"&gt;' &amp; Num([AC P&amp;L]-[PL P&amp;L], '+#,##0') &amp; '&lt;/text&gt;'
+  &amp; '&lt;/svg&gt;',
+
+  // ── Unfavourable: red bar grows LEFT from the baseline ──
+  'data:image/svg+xml,&lt;svg xmlns="http://www.w3.org/2000/svg" height="10" width="150"&gt;'
+  &amp; '&lt;style&gt;.value { font: 7px serif; font-family:&amp;quot;Inter Regular&amp;quot;; fill: rgb(255, 111, 98); }&lt;/style&gt;'
+  &amp; '&lt;rect x="'
+       &amp; (80 - fabs([AC P&amp;L]-[PL P&amp;L]) / fabs($(vCFPLP&amp;L2)) * 25)
+     &amp; '" y="3" width="'
+       &amp; fabs([AC P&amp;L]-[PL P&amp;L]) / fabs($(vCFPLP&amp;L2)) * 25
+     &amp; '" height="4" style="fill:rgb(255, 111, 98)"/&gt;'
+  &amp; '&lt;rect x="80" y="0" width="2" height="10" style="fill:rgb(0,0,0)"/&gt;'
+  &amp; '&lt;text x="'
+       &amp; (80 - fabs([AC P&amp;L]-[PL P&amp;L]) / fabs($(vCFPLP&amp;L2)) * 25 - 2)
+     &amp; '" y="8" class="value" text-anchor="end"&gt;' &amp; Num([AC P&amp;L]-[PL P&amp;L], '#,##0') &amp; '&lt;/text&gt;'
+  &amp; '&lt;/svg&gt;'
+)</code></pre>
+
+    <h2>How the maths works</h2>
+
+    <p>
+      The bar length is the same calculation on both sides:
+    </p>
+
+<pre><code>fabs([AC P&amp;L] - [PL P&amp;L]) / scale * 25</code></pre>
+
+    <p>
+      <code>fabs()</code> takes the absolute size of the gap. Dividing by the scale (the largest
+      positive variance, or the absolute value of the most negative one) gives a fraction from 0 to 1,
+      and <code>* 25</code> turns that into a pixel width — so the biggest bar in the table is 25px and
+      everything else is proportional.
+    </p>
+
+    <ul>
+      <li>
+        <strong>Right bar (green):</strong> starts at the fixed <code>x = 82</code> (just past the
+        baseline) and the width grows rightward. The label sits at
+        <code>82 + width + 2</code>, default left-aligned, so it trails the bar.
+        <code>RangeMax($(vCFPLP&amp;L), 1)</code> guards against dividing by zero when the largest
+        variance is 0.
+      </li>
+      <li>
+        <strong>Left bar (red):</strong> the width is the same formula, but the rectangle's
+        <code>x</code> is pushed back to <code>80 − width</code> so it <em>ends</em> at the baseline
+        and extends left. The label is placed at <code>80 − width − 2</code> with
+        <code>text-anchor="end"</code>, so it grows away from the baseline too instead of overprinting
+        the bar.
+      </li>
+    </ul>
+
+    <div class="tip-box">
+      Note the draw order on the red side: the bar is drawn <em>first</em>, then the baseline on top.
+      That keeps the 2px black zero-line crisp even when a bar reaches all the way back to it.
+    </div>
+
+    <h2>See it in action</h2>
+
+    <p>
+      A few P&amp;L lines on a shared scale — biggest beat is +135,000 (KOSTNADER), biggest miss is
+      −374,000 (Nettoomsättning). Every other bar is sized relative to those:
+    </p>
+
+    <div class="bar-demo">
+      <div class="bar-demo-header">
+        <span>Structure Line</span>
+        <span>ΔPL</span>
+      </div>
+      <div class="bar-demo-row">
+        <span class="bar-demo-name">Nettoomsättning</span>
+        <div class="bar-svg-wrap">
+          <svg xmlns="http://www.w3.org/2000/svg" height="18" width="150">
+            <rect x="40" y="5" width="40" height="8" style="fill:rgb(255,111,98)"/>
+            <rect x="80" y="0" width="2" height="18" style="fill:#000"/>
+            <text x="38" y="13" text-anchor="end" font-family="sans-serif" font-size="9" fill="rgb(210,80,70)">-374,000</text>
+          </svg>
+        </div>
+      </div>
+      <div class="bar-demo-row">
+        <span class="bar-demo-name">Rörelseintäkter</span>
+        <div class="bar-svg-wrap">
+          <svg xmlns="http://www.w3.org/2000/svg" height="18" width="150">
+            <rect x="42" y="5" width="38" height="8" style="fill:rgb(255,111,98)"/>
+            <rect x="80" y="0" width="2" height="18" style="fill:#000"/>
+            <text x="40" y="13" text-anchor="end" font-family="sans-serif" font-size="9" fill="rgb(210,80,70)">-359,500</text>
+          </svg>
+        </div>
+      </div>
+      <div class="bar-demo-row">
+        <span class="bar-demo-name">Varuinköp &amp; material</span>
+        <div class="bar-svg-wrap">
+          <svg xmlns="http://www.w3.org/2000/svg" height="18" width="150">
+            <rect x="80" y="0" width="2" height="18" style="fill:#000"/>
+            <rect x="82" y="5" width="33" height="8" style="fill:rgb(119,200,148)"/>
+            <text x="117" y="13" font-family="sans-serif" font-size="9" fill="rgb(80,170,118)">+111,000</text>
+          </svg>
+        </div>
+      </div>
+      <div class="bar-demo-row">
+        <span class="bar-demo-name">Personalkostnader</span>
+        <div class="bar-svg-wrap">
+          <svg xmlns="http://www.w3.org/2000/svg" height="18" width="150">
+            <rect x="80" y="0" width="2" height="18" style="fill:#000"/>
+            <rect x="82" y="5" width="21" height="8" style="fill:rgb(119,200,148)"/>
+            <text x="105" y="13" font-family="sans-serif" font-size="9" fill="rgb(80,170,118)">+69,500</text>
+          </svg>
+        </div>
+      </div>
+      <div class="bar-demo-row">
+        <span class="bar-demo-name">KOSTNADER</span>
+        <div class="bar-svg-wrap">
+          <svg xmlns="http://www.w3.org/2000/svg" height="18" width="150">
+            <rect x="80" y="0" width="2" height="18" style="fill:#000"/>
+            <rect x="82" y="5" width="40" height="8" style="fill:rgb(119,200,148)"/>
+            <text x="124" y="13" font-family="sans-serif" font-size="9" fill="rgb(80,170,118)">+135,000</text>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <h2>Two encoding gotchas</h2>
+
+    <p>
+      <strong>Font names with spaces.</strong> The <code>&lt;style&gt;</code> block sets
+      <code>font-family:&amp;quot;Inter Regular&amp;quot;</code>. Because the SVG already lives inside a
+      single-quoted Qlik string, you can't drop raw double quotes around the font name — the HTML
+      entity <code>&amp;quot;</code> stands in for them so the name survives intact.
+    </p>
+
+    <p>
+      <strong>Colours via <code>rgb()</code>, not <code>#hex</code>.</strong> The
+      <a href="progress-bar-in-table.html">progress bar post</a> had to write <code>#</code> as
+      <code>%23</code> because Qlik reads a bare <code>#</code> as a variable reference. Using
+      <code>fill: rgb(119, 200, 148)</code> sidesteps that entirely — no escaping, and it's easier to
+      tweak the channels by eye.
+    </p>
+
+    <h2>Sorting and export</h2>
+
+    <p>
+      One deliberate difference from the progress-bar version: this expression returns a plain SVG
+      string, not a <code>Dual()</code>. That keeps it readable, but it means the column sorts
+      alphabetically on the SVG text, which is meaningless. If you want this column to sort by the
+      actual variance, wrap the whole <code>If()</code> in
+      <code>Dual( …that whole expression… , [AC P&amp;L]-[PL P&amp;L] )</code> so the number drives the sort.
+    </p>
+
+    <div class="tip-box">
+      As with any image-representation column, the bar <strong>does not export to Excel</strong> — the
+      cell comes through as the raw <code>data:image/svg+xml,…</code> string. Keep a plain numeric ΔPL
+      measure alongside it if your users export.
+    </div>
+
+    <h2>Bottom line</h2>
+
+    <ul>
+      <li><strong>One baseline, two mirrored SVGs</strong> picked by a single <code>If(AC ≥ PL, …)</code> — green right for beats, red left for misses.</li>
+      <li><strong>Scale with <code>Max/Min(Aggr(…, [dimension]))</code></strong> so the longest bar fills 25px and every other bar is proportional — and stays honest under selection.</li>
+      <li><strong>Use <code>rgb()</code> for colour</strong> to avoid the <code>%23</code> escape, and <code>&amp;quot;</code> for font names with spaces.</li>
+      <li><strong>Wrap in <code>Dual()</code></strong> if you need the column to sort by variance.</li>
+    </ul>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <span class="footer-brand">by <strong>Qlikard</strong> — Rikard Larsson</span>
+    <div class="footer-links">
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision</a>
+      <a href="../about.html">About</a>
+    </div>
+    <span class="footer-copy">© 2026</span>
+  </div>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>
