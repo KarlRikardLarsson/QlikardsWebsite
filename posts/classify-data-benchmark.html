@@ -312,6 +312,40 @@ LOAD LowerBound, UpperBound, RevClass RESIDENT Bins;</code></pre>
       readability should usually win the argument — with the one hard exception of IntervalMatch.
     </div>
 
+    <h2>One caveat: this all assumes a fixed set of bands</h2>
+
+    <p>
+      Everything above holds <em>only</em> when you know your bands up front — a set number of buckets
+      with a known top. The moment that assumption breaks, half the field drops out.
+      <code>Nested If()</code>, <code>Pick()</code>, <code>ApplyMap()</code> and
+      <code>IntervalMatch</code> all require you to enumerate every band by hand: each one needs its own
+      branch, list entry, mapping row, or interval. If a new value lands above your highest defined
+      band, it falls into the catch-all — you don't get a new bucket, you get "everything else."
+    </p>
+
+    <p>
+      <code>Class()</code> and the <code>Floor / Round</code> arithmetic are different. Give them a width
+      and they bucket <em>any</em> value, however large, with no upper limit defined anywhere:
+    </p>
+
+<pre><code>// Both scale to an unbounded range with zero extra config:
+Class(Revenue, 200000)              AS RevClass
+Floor(Revenue/200000)*200000        AS RevClass
+Round(Revenue,200000)               AS RevClass</code></pre>
+
+    <p>
+      Whether revenue tops out at 1M or 1B, the bands keep generating themselves. That makes these two
+      the right choice when the maximum is open-ended or unknown — think running totals, growing
+      counters, or any measure with no natural ceiling — where hand-listing every band simply isn't
+      possible. It's the one thing the faster, list-based methods <strong>can't</strong> do.
+    </p>
+
+    <div class="tip-box">
+      So the benchmark ranking is the answer when your bands are fixed and known. When the range is
+      unbounded, the real shortlist is just <code>Class()</code> and <code>Floor/Round</code> — and
+      between those two, speed and labelling preference decide it.
+    </div>
+
     <h2>My pick: ApplyMap()</h2>
 
     <p>
@@ -341,6 +375,7 @@ LOAD LowerBound, UpperBound, RevClass RESIDENT Bins;</code></pre>
       <li><strong>Pick() is the raw-speed winner</strong> and scales best as band count grows.</li>
       <li><strong>Class() is fine but unremarkable</strong> — concise, mid-pack speed.</li>
       <li><strong>ApplyMap() is the best all-rounder</strong> — near the top on speed, far ahead on readability and maintenance.</li>
+      <li><strong>Class() and Floor/Round are the only two that scale infinitely</strong> — the right pick when there's no fixed maximum and you can't hand-list every band.</li>
     </ul>
 
     <p>
