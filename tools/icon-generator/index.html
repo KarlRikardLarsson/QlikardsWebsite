@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Icon Generator — Qlikard Tools</title>
+  <meta name="description" content="Consistent thumbnails for Qlik apps and sheets — a free browser tool by Qlikard." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231F8B4C'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='%23FAF7F2' text-anchor='middle'>Q</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #FAF7F2; --paper-2: #F3EFE7;
+      --ink: #1F1D1B; --ink-2: #4A4641; --ink-3: #807A71; --ink-4: #B8B0A3;
+      --rule: #E5DFD2; --rule-strong: #CFC7B7;
+      --green: #1F8B4C; --green-ink: #0F5E32; --green-tint: #E3F0E5;
+      --bad: #C0392B;
+      --radius: 6px; --t-fast: 120ms; --ease: cubic-bezier(0.2, 0, 0, 1);
+      --font-serif: 'Newsreader', Georgia, serif;
+      --font-sans: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: var(--font-sans); color: var(--ink); line-height: 1.6;
+      background: var(--paper);
+      background-image: radial-gradient(ellipse 120% 40% at 50% 0%, rgba(31,139,76,0.06) 0%, transparent 70%);
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; text-decoration: none; }
+
+    nav { border-bottom: 1px solid var(--rule); position: sticky; top: 0; z-index: 50; background: rgba(250,247,242,0.86); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+    .nav-inner { max-width: 1080px; margin: 0 auto; padding: 0 1.5rem; display: flex; align-items: center; justify-content: space-between; height: 54px; }
+    .nav-logo { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; color: var(--green); line-height: 1; }
+    .nav-logo span { color: var(--ink-3); font-weight: 400; }
+    .nav-links { display: flex; gap: 1.75rem; align-items: center; list-style: none; margin: 0; padding: 0; }
+    .nav-links a { color: var(--ink-3); font-size: 14px; transition: color var(--t-fast) var(--ease); }
+    .nav-links a:hover, .nav-links a.active { color: var(--ink); }
+
+    .page-head { max-width: 1080px; margin: 0 auto; padding: 44px 24px 28px; }
+    .page-head h1 { font-family: var(--font-serif); font-size: 40px; font-weight: 500; line-height: 1.1; letter-spacing: -0.012em; font-variation-settings: 'opsz' 48; margin: 0 0 10px; }
+    .page-head p { font-size: 15.5px; color: var(--ink-2); margin: 0; max-width: 560px; }
+
+    .gen-grid { max-width: 1080px; margin: 0 auto; padding: 0 24px 96px; display: grid; grid-template-columns: 400px 1fr; gap: 48px; align-items: start; }
+    @media (max-width: 860px) { .gen-grid { grid-template-columns: 1fr; } .preview { position: static !important; } }
+
+    .sec { padding: 20px 0 22px; border-bottom: 1px solid var(--rule); }
+    .sec.last { border-bottom: none; }
+    .sec-label, .mini-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-3); margin-bottom: 12px; }
+    .mini-label { letter-spacing: 0.1em; margin-bottom: 8px; }
+    .field-label { font-size: 12px; font-weight: 500; color: var(--ink-2); margin-bottom: 6px; }
+    .hint { font-size: 12.5px; color: var(--ink-3); line-height: 1.5; }
+    .hint.small { font-size: 11.5px; color: var(--ink-4); }
+
+    .tiles { display: flex; flex-wrap: wrap; gap: 8px; }
+    .tile { width: 104px; height: 65px; border-radius: var(--radius); cursor: pointer; border: 1px solid var(--rule); background-size: cover; background-position: center; transition: box-shadow var(--t-fast) var(--ease); }
+    .tile.sel { box-shadow: 0 0 0 2px var(--green); }
+    .tile-new { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--ink-3); border: 1.5px dashed var(--rule-strong); background: none; }
+    .tile-new:hover, .tile-new.sel { border-color: var(--green); color: var(--ink); box-shadow: none; }
+    .tile-new .plus { font-size: 18px; line-height: 1; }
+    .tile-new .lbl { font-size: 11px; font-weight: 500; }
+
+    .danger-link { font-size: 12.5px; color: var(--ink-3); cursor: pointer; text-decoration: underline; text-decoration-color: var(--rule-strong); text-underline-offset: 3px; display: inline-block; margin-top: 10px; }
+    .danger-link:hover { color: var(--bad); }
+
+    .builder { margin-top: 14px; background: var(--paper-2); border: 1px solid var(--rule); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+    .pillrow { display: flex; gap: 6px; }
+    .pill { border: 1px solid var(--rule); color: var(--ink-3); border-radius: 999px; padding: 4px 12px; font-family: var(--font-sans); font-size: 12.5px; background: var(--paper); cursor: pointer; transition: border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
+    .pill:hover { border-color: var(--rule-strong); color: var(--ink); }
+    .pill.sel { border-color: var(--green); color: var(--ink); }
+
+    .dropzone { display: block; border: 1.5px dashed var(--rule-strong); border-radius: var(--radius); padding: 16px 12px; text-align: center; cursor: pointer; background: var(--paper); transition: border-color var(--t-fast) var(--ease); }
+    .dropzone:hover, .dropzone.over { border-color: var(--green); }
+    .drop-label { font-size: 13px; color: var(--ink-2); }
+    .drop-sub { display: block; font-size: 11.5px; color: var(--ink-4); margin-top: 3px; }
+
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip { display: flex; align-items: center; gap: 6px; border: 1px solid var(--rule); border-radius: var(--radius); padding: 4px 8px; cursor: pointer; background: var(--paper); }
+    .chip.sel { border-color: var(--green); }
+    .chip .thumb { width: 28px; height: 18px; border-radius: 3px; background-color: #fff; background-size: cover; background-position: center; }
+    .chip .nm { font-size: 12px; color: var(--ink-2); max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chip .x { font-size: 13px; color: var(--ink-4); line-height: 1; padding: 0 2px; }
+    .chip .x:hover { color: var(--bad); }
+
+    .input { width: 100%; background: var(--paper); border: 1px solid var(--rule); border-radius: var(--radius); padding: 7px 10px; font-family: var(--font-sans); font-size: 13.5px; color: var(--ink); outline: none; transition: border-color var(--t-fast) var(--ease); }
+    .input:focus { border-color: var(--green); }
+    .input.on-paper { background: var(--paper-2); padding: 9px 12px; font-size: 14px; }
+    .input.on-paper:focus { box-shadow: 0 0 0 3px rgba(31,139,76,0.10); }
+    .input.mono { font-family: var(--font-mono); font-size: 12.5px; width: 86px; }
+
+    .swatches { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .swatch { width: 22px; height: 22px; border-radius: 4px; cursor: pointer; border: 1px solid var(--rule); }
+    .swatch.sel { box-shadow: 0 0 0 2px var(--green); }
+    .swatch.transparent { background-image: linear-gradient(45deg, #D9D2C2 25%, transparent 25%, transparent 75%, #D9D2C2 75%), linear-gradient(45deg, #D9D2C2 25%, #FAF7F2 25%, #FAF7F2 75%, #D9D2C2 75%); background-size: 8px 8px; background-position: 0 0, 4px 4px; }
+    .swatch.mini { width: 18px; height: 18px; }
+    .custom-btn { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--rule); border-radius: 999px; padding: 2px 8px 2px 3px; cursor: pointer; background: var(--paper); transition: border-color var(--t-fast) var(--ease); }
+    .custom-btn:hover, .custom-btn.sel { border-color: var(--green); }
+    .custom-btn .dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--rule); display: block; }
+    .custom-btn .txt { font-size: 11.5px; color: var(--ink-2); }
+    .colour-row { display: flex; align-items: center; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+    .colour-row .rl { font-size: 11.5px; color: var(--ink-3); margin-right: 2px; }
+    .auto-btn { border: 1px solid var(--rule); color: var(--ink-3); border-radius: 999px; padding: 2px 9px; font-family: var(--font-sans); font-size: 11.5px; background: var(--paper); cursor: pointer; }
+    .auto-btn.sel { border-color: var(--green); color: var(--ink); }
+
+    .saverow { display: flex; gap: 8px; align-items: center; border-top: 1px solid var(--rule); padding-top: 14px; }
+    .saverow .input { flex: 1; }
+    .btn-secondary { border: 1px solid var(--rule-strong); border-radius: var(--radius); padding: 7px 14px; font-family: var(--font-sans); font-size: 13px; font-weight: 500; color: var(--ink-2); background: var(--paper); cursor: pointer; white-space: nowrap; transition: border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
+    .btn-secondary:hover { border-color: var(--green); color: var(--ink); }
+    .btn-primary { border: none; border-radius: var(--radius); padding: 10px 20px; font-family: var(--font-sans); font-size: 14px; font-weight: 600; color: var(--paper); background: var(--green); cursor: pointer; transition: background var(--t-fast) var(--ease); }
+    .btn-primary:hover { background: var(--green-ink); }
+
+    .seg { display: flex; border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; }
+    .seg button { border: none; padding: 6px 10px; cursor: pointer; background: transparent; color: var(--ink-3); display: flex; align-items: center; }
+    .seg button + button { border-left: 1px solid var(--rule); }
+    .seg button.sel { background: var(--green-tint); color: var(--green-ink); }
+    .bold-btn { border: 1px solid var(--rule); border-radius: var(--radius); padding: 5px 11px; cursor: pointer; background: transparent; color: var(--ink-3); font-family: var(--font-sans); font-size: 13px; font-weight: 700; }
+    .bold-btn.sel { background: var(--green-tint); color: var(--green-ink); border-color: var(--green); }
+
+    .size-btn { flex: 1; border: 1px solid var(--rule); color: var(--ink-3); border-radius: var(--radius); padding: 9px 10px; font-family: var(--font-sans); font-size: 13px; background: none; cursor: pointer; text-align: left; line-height: 1.35; }
+    .size-btn.sel { border-color: var(--green); color: var(--ink); }
+    .size-btn .nm { display: block; font-weight: 600; }
+    .size-btn .px { display: block; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-3); }
+
+    .preview { position: sticky; top: 78px; display: flex; flex-direction: column; gap: 12px; }
+    .preview-head { display: flex; align-items: baseline; justify-content: space-between; }
+    .preview-note { font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); }
+    .canvas-wrap { border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; max-width: 576px; background-color: #fff; }
+    .canvas-wrap.checker { background-image: linear-gradient(45deg, #EDE9E0 25%, transparent 25%, transparent 75%, #EDE9E0 75%), linear-gradient(45deg, #EDE9E0 25%, #fff 25%, #fff 75%, #EDE9E0 75%); background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+    .canvas-wrap canvas { display: block; width: 100%; height: auto; }
+    .dl-row { display: flex; gap: 10px; align-items: center; }
+    .dl-row .fn { font-size: 12.5px; color: var(--ink-4); }
+
+    .history-sec { margin-top: 20px; border-top: 1px solid var(--rule); padding-top: 18px; }
+    .history-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
+    .history-head .clear { font-size: 12px; color: var(--ink-4); cursor: pointer; }
+    .history-head .clear:hover { color: var(--bad); }
+    .htile { width: 104px; height: 65px; border: 1px solid var(--rule); border-radius: var(--radius); cursor: pointer; background-color: #fff; background-size: cover; background-position: center; transition: border-color var(--t-fast) var(--ease); }
+    .htile:hover { border-color: var(--green); }
+
+    .picker { margin-top: 10px; background: var(--paper); border: 1px solid var(--rule); border-radius: var(--radius); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .picker[hidden] { display: none; }
+    .sl { position: relative; width: 100%; height: 120px; border-radius: var(--radius); cursor: crosshair; touch-action: none; border: 1px solid var(--rule); }
+    .sl .dot { position: absolute; width: 14px; height: 14px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.4); transform: translate(-50%, -50%); pointer-events: none; }
+    input[type="range"].hue { -webkit-appearance: none; appearance: none; width: 100%; height: 12px; border-radius: 999px; outline: none; border: 1px solid rgba(0,0,0,0.08); background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); cursor: pointer; }
+    input[type="range"].hue::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--paper); border: 2px solid var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,0.3); cursor: pointer; }
+    input[type="range"].hue::-moz-range-thumb { width: 13px; height: 13px; border-radius: 50%; background: var(--paper); border: 2px solid var(--ink); cursor: pointer; }
+    .picker-foot { display: flex; align-items: center; gap: 8px; }
+    .picker-foot .pv { width: 26px; height: 26px; border-radius: var(--radius); border: 1px solid var(--rule); display: block; }
+
+    footer { border-top: 1px solid var(--rule); padding: 22px 24px; }
+    .footer-inner { max-width: 1080px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--ink-3); }
+    .footer-inner strong { color: var(--ink); font-weight: 600; }
+    .footer-inner .note { font-size: 12px; color: var(--ink-4); }
+
+    .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px); background: var(--paper); border: 1px solid var(--rule-strong); border-radius: 999px; padding: 8px 18px; font-size: 13.5px; color: var(--ink); box-shadow: 0 4px 16px rgba(31,29,27,0.10); display: flex; align-items: center; gap: 8px; z-index: 200; opacity: 0; transition: opacity 180ms var(--ease), transform 180ms var(--ease); pointer-events: none; }
+    .toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .toast .check { color: var(--green); font-weight: 700; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../../index.html">Home</a></li>
+      <li><a href="../../tools.html" class="active">Tools</a></li>
+      <li><a href="../../about.html">About</a></li>
+    </ul>
+  </div>
+</nav>
+
+<header class="page-head">
+  <h1>Icon Generator</h1>
+  <p>Consistent thumbnails for Qlik apps and sheets. Pick a background, add text, download the PNG — the preview updates as you type.</p>
+</header>
+
+<main class="gen-grid">
+
+  <!-- CONTROLS -->
+  <div class="controls">
+
+    <section class="sec">
+      <div class="sec-label">Background</div>
+      <div id="tiles" class="tiles"></div>
+      <div id="delete-tpl-row" hidden><a id="delete-tpl" class="danger-link">Delete this saved template</a></div>
+
+      <div id="builder" class="builder" hidden>
+        <div class="pillrow">
+          <button type="button" class="pill mode-btn" data-mode="picture">Picture</button>
+          <button type="button" class="pill mode-btn" data-mode="logo">Logo + colour</button>
+          <button type="button" class="pill mode-btn" data-mode="strip">Picture + strip</button>
+        </div>
+        <div id="mode-hint" class="hint"></div>
+
+        <label id="dropzone" class="dropzone">
+          <input type="file" id="file-input" accept="image/*" hidden>
+          <span id="drop-label" class="drop-label">Choose your logo</span>
+          <span class="drop-sub">Drop an image here or click to browse</span>
+        </label>
+
+        <div id="assets-block" hidden>
+          <div class="mini-label">Saved uploads</div>
+          <div id="assets" class="chips"></div>
+        </div>
+
+        <div id="pos-block" hidden>
+          <div class="field-label">Logo position</div>
+          <select id="logo-pos" class="input">
+            <option value="bottom-right">Bottom right (in strip)</option>
+            <option value="bottom-left">Bottom left (in strip)</option>
+            <option value="top-right">Top right</option>
+            <option value="top-left">Top left</option>
+            <option value="center">Center</option>
+          </select>
+        </div>
+
+        <div id="fit-block" hidden>
+          <div class="field-label">Image scale</div>
+          <select id="fit" class="input">
+            <option value="contain">Fit — show full image</option>
+            <option value="cover">Fill — crop to area</option>
+          </select>
+        </div>
+
+        <div id="color-block" hidden>
+          <div class="field-label">Background colour</div>
+          <div id="bg-swatches" class="swatches"></div>
+          <div id="bg-picker-slot"></div>
+        </div>
+
+        <div class="saverow">
+          <input type="text" id="tpl-name" class="input" placeholder="Template name…">
+          <button type="button" id="save-tpl" class="btn-secondary">Save to library</button>
+        </div>
+        <div class="hint small" style="margin-top:-8px">Saved templates keep the background only — text stays editable.</div>
+      </div>
+    </section>
+
+    <section class="sec">
+      <div class="sec-label">Text</div>
+      <div style="margin-bottom:14px">
+        <div class="field-label">Title</div>
+        <input type="text" id="title" class="input on-paper" placeholder="e.g. Sales Performance">
+        <div class="colour-row">
+          <span class="rl">Colour</span>
+          <span id="title-swatches" class="swatches"></span>
+          <span id="title-custom" class="custom-btn"><span class="dot"></span><span class="txt">Custom…</span></span>
+        </div>
+      </div>
+      <div>
+        <div class="field-label">Subtitle</div>
+        <input type="text" id="subtitle" class="input on-paper" placeholder="e.g. Dashboard, Report, KPI…">
+        <div class="colour-row">
+          <div class="seg" id="align-seg">
+            <button type="button" data-align="left" title="Align left"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="2" width="10" height="2"/><rect x="1" y="6" width="14" height="2"/><rect x="1" y="10" width="8" height="2"/><rect x="1" y="14" width="12" height="2"/></svg></button>
+            <button type="button" data-align="center" title="Align center"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="2" width="10" height="2"/><rect x="1" y="6" width="14" height="2"/><rect x="4" y="10" width="8" height="2"/><rect x="2" y="14" width="12" height="2"/></svg></button>
+            <button type="button" data-align="right" title="Align right"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><rect x="5" y="2" width="10" height="2"/><rect x="1" y="6" width="14" height="2"/><rect x="7" y="10" width="8" height="2"/><rect x="3" y="14" width="12" height="2"/></svg></button>
+          </div>
+          <button type="button" id="bold-btn" class="bold-btn" title="Bold subtitle">B</button>
+        </div>
+        <div class="colour-row">
+          <span class="rl">Colour</span>
+          <button type="button" id="sub-auto" class="auto-btn" title="Automatic — dark on the white strip, white elsewhere">Auto</button>
+          <span id="sub-swatches" class="swatches"></span>
+          <span id="sub-custom" class="custom-btn"><span class="dot"></span><span class="txt">Custom…</span></span>
+        </div>
+      </div>
+      <div id="text-picker-slot"></div>
+    </section>
+
+    <section class="sec last">
+      <div class="sec-label">Export size</div>
+      <div style="display:flex; gap:6px">
+        <button type="button" class="size-btn" data-size="288x180"><span class="nm">Qlik Cloud</span><span class="px">288 × 180</span></button>
+        <button type="button" class="size-btn" data-size="164x108"><span class="nm">Client-managed</span><span class="px">164 × 108</span></button>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- PREVIEW -->
+  <div class="preview">
+    <div class="preview-head">
+      <div class="sec-label" style="margin:0">Preview</div>
+      <span class="preview-note">exports at <span id="export-note">288 × 180</span> px</span>
+    </div>
+    <div id="canvas-wrap" class="canvas-wrap">
+      <canvas id="canvas" width="864" height="540">Your browser does not support canvas.</canvas>
+    </div>
+    <div class="dl-row">
+      <button type="button" id="download" class="btn-primary">Download PNG</button>
+      <span class="fn" id="file-hint"></span>
+    </div>
+    <div id="history-sec" class="history-sec" hidden>
+      <div class="history-head">
+        <div class="sec-label" style="margin:0">Recent icons</div>
+        <a id="clear-history" class="clear">Clear</a>
+      </div>
+      <div id="history" class="tiles"></div>
+      <div class="hint small" style="margin-top:8px">Click one to load its settings back into the builder.</div>
+    </div>
+  </div>
+
+</main>
+
+<!-- shared colour picker (moved between slots) -->
+<div id="picker" class="picker" hidden>
+  <div id="picker-label" class="mini-label" style="margin-bottom:0"></div>
+  <div id="sl" class="sl"><span id="sl-dot" class="dot"></span></div>
+  <input type="range" id="hue" class="hue" min="0" max="360">
+  <div class="picker-foot">
+    <span id="picker-swatch" class="pv"></span>
+    <input type="text" id="hex" class="input mono" spellcheck="false">
+    <span class="hint small">Drag the square, slide the hue, or paste a hex.</span>
+  </div>
+</div>
+
+<footer>
+  <div class="footer-inner">
+    <span>by <strong>Qlikard</strong> — Rikard Larsson</span>
+    <span class="note">Templates, uploads, and history live in your browser — nothing is sent anywhere.</span>
+  </div>
+</footer>
+
+<div id="toast" class="toast"><span class="check">✓</span><span id="toast-msg"></span></div>
+
+<script src="app.js"></script>
+</body>
+</html>
