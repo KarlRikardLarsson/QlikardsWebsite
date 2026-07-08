@@ -6,6 +6,10 @@ function formatDate(iso) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function monthLabel(iso) {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
 function isNew(iso) {
   return (Date.now() - new Date(iso).getTime()) < NEW_DAYS * 86400000;
 }
@@ -36,7 +40,6 @@ function renderFeatured(post) {
   if (!post) { el.innerHTML = ''; el.hidden = true; return; }
 
   el.hidden = false;
-  const cat = CATEGORIES[post.category];
   el.innerHTML = `
     <div class="featured-label">Latest post</div>
     <a class="featured-link" href="${post.file}">
@@ -47,30 +50,29 @@ function renderFeatured(post) {
       </div>
       <h2 class="featured-title">${post.title}</h2>
       <p class="featured-excerpt">${post.excerpt}</p>
-      <span class="featured-cta">Read post →</span>
+      <span class="featured-cta">Read post <span class="arrow">→</span></span>
     </a>`;
 }
 
 // ── Post list ─────────────────────────────────────────────────────────────────
 
-function postItemHTML(post, skipId = null) {
-  if (post.id === skipId) return '';
+function postItemHTML(post) {
   const newBadge = isNew(post.date) ? '<span class="badge-new">New</span>' : '';
   return `
-    <article class="post-item cat-${post.category}">
+    <a class="post-item cat-${post.category}" href="${post.file}">
       <div class="post-item-left">
         <div class="post-item-top">
           ${tagHTML(post.category, true)}
           ${newBadge}
         </div>
-        <h3><a href="${post.file}">${post.title}</a></h3>
+        <h3>${post.title}</h3>
         <p class="excerpt">${post.excerpt}</p>
       </div>
       <div class="post-item-right">
         <span class="date">${formatDate(post.date)}</span>
         <span class="read-time">${post.readTime} min</span>
       </div>
-    </article>`;
+    </a>`;
 }
 
 let currentFilter = 'all';
@@ -79,7 +81,6 @@ let currentQuery  = '';
 function render() {
   const posts = sortedPosts(currentFilter, currentQuery);
   const grid  = document.getElementById('posts-grid');
-  const featuredSection = document.getElementById('featured-post');
   if (!grid) return;
 
   const searching = currentQuery.length > 0;
@@ -101,21 +102,55 @@ function render() {
     return;
   }
 
-  grid.innerHTML = listPosts.map(p => postItemHTML(p)).join('');
+  // Month markers break up the chronological list
+  let html = '';
+  let lastMonth = null;
+  for (const p of listPosts) {
+    const m = monthLabel(p.date);
+    if (m !== lastMonth) {
+      html += `<div class="month-label"><span>${m}</span></div>`;
+      lastMonth = m;
+    }
+    html += postItemHTML(p);
+  }
+  grid.innerHTML = html;
 }
 
-// ── Counts ────────────────────────────────────────────────────────────────────
+// ── Counts + hero meta ────────────────────────────────────────────────────────
 
 function renderCounts() {
   const total = document.getElementById('count-all');
   if (total) total.textContent = POSTS.length;
   Object.keys(CATEGORIES).forEach(key => {
-    const el = document.getElementById(`count-${key}`);
     const n = POSTS.filter(p => p.category === key).length;
+    const el = document.getElementById(`count-${key}`);
     if (el) el.textContent = n || '';
+    const footerEl = document.getElementById(`footer-count-${key}`);
+    if (footerEl) footerEl.textContent = n || '';
   });
+
   const heroCount = document.getElementById('hero-post-count');
   if (heroCount) heroCount.textContent = POSTS.length;
+
+  const heroUpdated = document.getElementById('hero-updated');
+  if (heroUpdated && POSTS.length) {
+    const latest = [...POSTS].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+    heroUpdated.textContent = formatDate(latest.date);
+  }
+}
+
+// ── Footer recent posts ───────────────────────────────────────────────────────
+
+function renderFooterRecent() {
+  const el = document.getElementById('footer-recent');
+  if (!el) return;
+  const prefix = window.location.pathname.includes('/posts/') ? '../' : '';
+  const recent = [...POSTS]
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .slice(0, 3);
+  el.innerHTML = recent
+    .map(p => `<a href="${prefix}${p.file}" title="${p.title}">${p.title}</a>`)
+    .join('');
 }
 
 // ── Search ────────────────────────────────────────────────────────────────────
@@ -200,6 +235,7 @@ function initProgressBar() {
 document.addEventListener('DOMContentLoaded', () => {
   render();
   renderCounts();
+  renderFooterRecent();
   initSearch();
   initProgressBar();
   renderRelated();

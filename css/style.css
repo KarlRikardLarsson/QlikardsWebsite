@@ -1,10 +1,13 @@
 /* ============================================================
-   QLIKARD — Editorial redesign
+   QLIKARD — Editorial redesign, polish pass (July 2026)
    ------------------------------------------------------------
-   Drop-in replacement for css/style.css. Targets the same
-   class structure the existing app.js generates — no JS edits
-   needed. Light mode only. Fonts via Google Fonts (imported
-   below; keep that line or move the import to <link> in head).
+   Drop-in replacement for css/style.css. Changes vs previous:
+   - Post list titles in Newsreader serif, month markers, whole-
+     row hover tint (replaces opacity + left-border hover)
+   - Pills + search share one row (.controls-row)
+   - Hero stats replaced by a quiet mono meta line (.hero-meta)
+   - New four-column footer (.footer-grid); the old .footer-inner
+     styles are kept so existing post pages don't break.
    ============================================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -172,6 +175,18 @@ nav {
   line-height: 1.6;
 }
 
+/* Quiet meta line (replaces the big stats block) */
+.hero-meta {
+  margin-top: 2.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Legacy hero stats — kept in case you want to switch back */
 .hero-stats {
   display: flex;
   gap: 2.5rem;
@@ -179,7 +194,6 @@ nav {
   padding-top: 2rem;
   border-top: 1px solid var(--border);
 }
-
 .hero-stat-value {
   font-family: var(--font-serif);
   font-size: 2rem;
@@ -188,7 +202,6 @@ nav {
   line-height: 1;
   font-variation-settings: 'opsz' 32;
 }
-
 .hero-stat-label {
   font-family: var(--font-sans);
   font-size: 12px;
@@ -217,13 +230,20 @@ nav {
   margin-bottom: 1rem;
 }
 
-/* ===== SEARCH ===== */
-.search-wrap { padding: 1.75rem 0 1.125rem; }
+/* ===== CONTROLS ROW — pills left, search right ===== */
+.controls-row {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  padding: 1.625rem 0 1.375rem;
+}
 
-.search-field { position: relative; }
+.search-field { position: relative; width: 260px; }
 .search-field svg {
   position: absolute;
-  left: 0.875rem;
+  left: 0.75rem;
   top: 50%;
   transform: translateY(-50%);
   color: var(--muted);
@@ -235,22 +255,24 @@ nav {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 0.7rem 1rem 0.7rem 2.5rem;
+  padding: 0.55rem 0.75rem 0.55rem 2.125rem;
   color: var(--text);
   font-family: var(--font-sans);
   font-size: 14px;
-  transition: border-color var(--t-fast) var(--ease);
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
   outline: none;
 }
 #search-input::placeholder { color: var(--muted); }
-#search-input:focus { border-color: var(--green); }
+#search-input:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(31, 139, 76, 0.10);
+}
 
 /* ===== CATEGORY PILLS ===== */
 .categories-row {
   display: flex;
   gap: 0.375rem;
   flex-wrap: wrap;
-  padding-bottom: 1.75rem;
 }
 
 .cat-pill {
@@ -279,9 +301,11 @@ nav {
 
 /* ===== FEATURED POST ===== */
 .featured-wrap {
-  padding: 1.75rem 0;
+  padding: 1.75rem 0 2rem;
+  border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
+.featured-wrap[hidden] { display: none; }
 
 .featured-label {
   font-family: var(--font-sans);
@@ -295,6 +319,7 @@ nav {
 
 .featured-link { display: block; }
 .featured-link:hover .featured-title { color: var(--green-ink); }
+.featured-link:hover .featured-cta .arrow { transform: translateX(3px); }
 
 .featured-meta {
   display: flex;
@@ -311,7 +336,7 @@ nav {
 
 .featured-title {
   font-family: var(--font-serif);
-  font-size: clamp(1.4rem, 2.8vw, 2rem);
+  font-size: clamp(1.4rem, 2.8vw, 2.05rem);
   font-weight: 500;
   line-height: 1.18;
   letter-spacing: -0.008em;
@@ -327,7 +352,7 @@ nav {
   font-size: 15px;
   color: var(--ink-2);
   line-height: 1.6;
-  max-width: 600px;
+  max-width: 620px;
   margin-bottom: 1.125rem;
 }
 
@@ -336,6 +361,10 @@ nav {
   font-size: 14px;
   font-weight: 600;
   color: var(--green);
+}
+.featured-cta .arrow {
+  display: inline-block;
+  transition: transform 180ms var(--ease);
 }
 
 /* ===== TAG ===== */
@@ -357,22 +386,41 @@ nav {
   flex-direction: column;
 }
 
+/* Month markers breaking up the list */
+.month-label {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 1.75rem 0 0.625rem;
+}
+.month-label span {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.month-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* Whole row is an <a>; hover = sunk paper tint */
 .post-item {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 1.125rem;
-  padding: 1.125rem 0.75rem 1.125rem 0.875rem;
+  gap: 1.5rem;
+  padding: 1.125rem 1rem;
+  margin: 0 -1rem;
   border-bottom: 1px solid var(--border);
-  border-left: 2px solid transparent;
-  transition: border-left-color var(--t-fast) var(--ease), opacity var(--t-fast) var(--ease);
+  border-radius: 8px;
+  transition: background var(--t-fast) var(--ease);
 }
-.post-item:first-child { border-top: 1px solid var(--border); }
-.post-item:hover { opacity: 0.9; }
-
-.post-item.cat-scripts:hover  { border-left-color: var(--c-scripts); }
-.post-item.cat-viz:hover      { border-left-color: var(--c-viz); }
-.post-item.cat-automate:hover { border-left-color: var(--c-automate); }
-.post-item.cat-general:hover  { border-left-color: var(--c-general); }
+.post-item:hover { background: var(--surface); }
 
 .post-item-left  { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
 .post-item-right { display: flex; flex-direction: column; align-items: flex-end; gap: 0.15rem; padding-top: 0.15rem; }
@@ -396,28 +444,33 @@ nav {
 }
 
 .post-item h3 {
-  font-family: var(--font-sans);
-  font-size: 15.5px;
-  font-weight: 600;
-  line-height: 1.4;
+  font-family: var(--font-serif);
+  font-size: 1.22rem;
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
+  font-variation-settings: 'opsz' 24;
   color: var(--text);
 }
-.post-item h3 a { transition: color var(--t-fast) var(--ease); }
-.post-item h3 a:hover { color: var(--green-ink); }
 
 .post-item .excerpt {
   font-family: var(--font-sans);
   font-size: 13.5px;
   color: var(--muted);
   line-height: 1.55;
-  max-width: 540px;
+  max-width: 560px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
 .post-item .date {
-  font-family: var(--font-sans);
+  font-family: var(--font-mono);
   font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .post-item .read-time {
   font-family: var(--font-sans);
@@ -676,6 +729,7 @@ nav {
 .about-content ul { margin: 0.5rem 0 1rem 1.5rem; color: var(--ink-2); }
 .about-content li { margin-bottom: 0.4rem; }
 .about-content strong { color: var(--text); }
+.about-content .tag { font-size: 12px; }
 
 .about-company-link {
   color: var(--text);
@@ -709,14 +763,61 @@ nav {
   color: var(--text);
 }
 
-/* ===== FOOTER ===== */
+/* ===== FOOTER — four quiet columns ===== */
 footer {
   border-top: 1px solid var(--border);
-  padding: 1.75rem 1.5rem;
+  padding: 2.5rem 1.5rem 2.25rem;
   font-family: var(--font-sans);
   font-size: 13.5px;
 }
 
+.footer-grid {
+  max-width: 900px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1.5fr 0.8fr 1.2fr 0.8fr;
+  gap: 2.5rem;
+}
+
+.footer-col { min-width: 0; }
+
+.footer-heading {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  margin-bottom: 0.75rem;
+}
+
+.footer-col a {
+  display: block;
+  font-size: 13.5px;
+  color: var(--ink-2);
+  margin-bottom: 0.5rem;
+  transition: color var(--t-fast) var(--ease);
+}
+.footer-col a:hover { color: var(--green-ink); }
+
+.footer-recent-col a {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.footer-count { color: var(--subtle); }
+
+.footer-brand-col .nav-logo { font-size: 16px; }
+.footer-blurb {
+  font-size: 13.5px;
+  color: var(--muted);
+  line-height: 1.6;
+  margin: 0.625rem 0 0.875rem;
+  max-width: 240px;
+}
+.footer-copy { color: var(--subtle); font-size: 12px; }
+
+/* Legacy single-row footer — still used on post pages */
 .footer-inner {
   max-width: 900px;
   margin: 0 auto;
@@ -726,10 +827,8 @@ footer {
   gap: 1.5rem;
   flex-wrap: wrap;
 }
-
 .footer-brand { color: var(--muted); }
 .footer-brand strong { color: var(--text); font-weight: 600; }
-
 .footer-links {
   display: flex;
   align-items: center;
@@ -741,14 +840,16 @@ footer {
 }
 .footer-links a:hover { color: var(--text); }
 
-.footer-copy { color: var(--subtle); }
-
 /* ===== RESPONSIVE ===== */
 @media (max-width: 600px) {
   .hero-stats { gap: 1.5rem; }
-  .post-item { grid-template-columns: 1fr; }
+  .controls-row { flex-direction: column; align-items: stretch; }
+  .search-field { width: 100%; }
+  .post-item { grid-template-columns: 1fr; gap: 0.5rem; }
   .post-item-right { flex-direction: row; gap: 0.625rem; }
   .related-item { flex-direction: column; gap: 0.2rem; }
   .related-meta { white-space: normal; }
+  .footer-grid { grid-template-columns: 1fr 1fr; gap: 1.75rem; }
+  .footer-brand-col { grid-column: 1 / -1; }
   .footer-inner { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
 }

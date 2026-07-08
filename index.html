@@ -37,47 +37,38 @@
   <p class="hero-eyebrow">Qlik tips & tricks</p>
   <h1>Hi, I'm Qlikard.<br>I write about Qlik.</h1>
   <p>Scripts, visualizations, Qlik Automate flows, and the small things that make working with Qlik faster and cleaner.</p>
-  <div class="hero-stats">
-    <div>
-      <div class="hero-stat-value" id="hero-post-count">—</div>
-      <div class="hero-stat-label">Posts published</div>
-    </div>
-    <div>
-      <div class="hero-stat-value">4</div>
-      <div class="hero-stat-label">Categories</div>
-    </div>
+  <div class="hero-meta">
+    <span id="hero-post-count">—</span> posts&nbsp;&nbsp;·&nbsp;&nbsp;4 categories&nbsp;&nbsp;·&nbsp;&nbsp;Last updated <span id="hero-updated">—</span>
   </div>
 </header>
 
 <main class="container">
 
-  <!-- SEARCH -->
-  <div class="search-wrap">
+  <!-- CATEGORY PILLS + SEARCH (one row) -->
+  <div class="controls-row">
+    <div class="categories-row">
+      <button class="cat-pill active" data-filter="all" onclick="filterCategory('all', this)">
+        All <span class="pill-count" id="count-all"></span>
+      </button>
+      <button class="cat-pill" data-filter="scripts" onclick="filterCategory('scripts', this)">
+        Scripts <span class="pill-count" id="count-scripts"></span>
+      </button>
+      <button class="cat-pill" data-filter="viz" onclick="filterCategory('viz', this)">
+        Visualizations <span class="pill-count" id="count-viz"></span>
+      </button>
+      <button class="cat-pill" data-filter="automate" onclick="filterCategory('automate', this)">
+        Qlik Automate <span class="pill-count" id="count-automate"></span>
+      </button>
+      <button class="cat-pill" data-filter="general" onclick="filterCategory('general', this)">
+        General <span class="pill-count" id="count-general"></span>
+      </button>
+    </div>
     <div class="search-field">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
       </svg>
       <input id="search-input" type="search" placeholder="Search posts…" autocomplete="off" />
     </div>
-  </div>
-
-  <!-- CATEGORY PILLS -->
-  <div class="categories-row">
-    <button class="cat-pill active" data-filter="all" onclick="filterCategory('all', this)">
-      All <span class="pill-count" id="count-all"></span>
-    </button>
-    <button class="cat-pill" data-filter="scripts" onclick="filterCategory('scripts', this)">
-      Scripts <span class="pill-count" id="count-scripts"></span>
-    </button>
-    <button class="cat-pill" data-filter="viz" onclick="filterCategory('viz', this)">
-      Visualizations <span class="pill-count" id="count-viz"></span>
-    </button>
-    <button class="cat-pill" data-filter="automate" onclick="filterCategory('automate', this)">
-      Qlik Automate <span class="pill-count" id="count-automate"></span>
-    </button>
-    <button class="cat-pill" data-filter="general" onclick="filterCategory('general', this)">
-      General <span class="pill-count" id="count-general"></span>
-    </button>
   </div>
 
   <!-- FEATURED POST (rendered by JS) -->
@@ -89,14 +80,28 @@
 </main>
 
 <footer>
-  <div class="footer-inner">
-    <span class="footer-brand">by <strong>Qlikard</strong> — Rikard Larsson</span>
-    <div class="footer-links">
-      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn</a>
-      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision</a>
+  <div class="footer-grid">
+    <div class="footer-col footer-brand-col">
+      <a class="nav-logo" href="index.html">Qlik<span>ard</span></a>
+      <p class="footer-blurb">Qlik notes by Rikard Larsson. Written down so I only have to solve things once.</p>
+      <span class="footer-copy">© 2026</span>
+    </div>
+    <div class="footer-col">
+      <div class="footer-heading">Categories</div>
+      <a href="index.html">Scripts <span class="footer-count" id="footer-count-scripts"></span></a>
+      <a href="index.html">Visualizations <span class="footer-count" id="footer-count-viz"></span></a>
+      <a href="index.html">Qlik Automate <span class="footer-count" id="footer-count-automate"></span></a>
+    </div>
+    <div class="footer-col footer-recent-col">
+      <div class="footer-heading">Recent</div>
+      <div id="footer-recent"></div>
+    </div>
+    <div class="footer-col">
+      <div class="footer-heading">Elsewhere</div>
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn ↗</a>
+      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision ↗</a>
       <a href="about.html">About</a>
     </div>
-    <span class="footer-copy">© 2026</span>
   </div>
 </footer>
 
