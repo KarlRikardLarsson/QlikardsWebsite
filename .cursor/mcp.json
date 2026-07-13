@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "datamate": {
+      "type": "stdio",
+      "command": "C:\\Users\\RikardLarsson\\AppData\\Local\\Programs\\cursor\\Cursor.exe",
+      "args": [
+        "c:\\Users\\RikardLarsson\\.cursor\\extensions\\altimateai.vscode-altimate-mcp-server-0.8.7-win32-x64\\dist\\datamate-cli.js",
+        "start-stdio"
+      ],
+      "env": {
+        "ALTIMATE_EXTENSION_RPC": "\\\\.\\pipe\\altimate-mcp-20132",
+        "ELECTRON_RUN_AS_NODE": "1"
+      },
+      "updatedAt": "2026-07-13T18:45:35.820Z"
+    }
+  }
+}

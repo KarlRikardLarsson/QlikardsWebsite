@@ -8,7 +8,7 @@
 (function () {
   'use strict';
 
-  var W = 864, H = 540, STRIP_H = 140;
+  var W = 864, H = 540, STRIP_H = 150;
 
   var BUILTINS = {
     'gradient_ocean':    { label: 'Ocean',    css: 'linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%)', gradient: { x0: 0, y0: 0, x1: 1, y1: 1, stops: [[0, '#0f2027'], [0.5, '#203a43'], [1, '#2c5364']] } },
@@ -22,24 +22,24 @@
   var PAL = ['#1a1a2e', '#0f3460', '#16213e', '#0f766e', '#009844', '#166534', '#c94b4b', '#7c3aed', '#374151', '#1f2937'];
   var TEXT_PAL = ['#ffffff', '#1a1a2e', '#807a71', '#009844'];
   var MODE_HINTS = {
-    picture: 'The image fills the whole thumbnail.',
     logo: 'Solid colour with a white strip — your logo sits in the strip or a corner.',
-    strip: 'Image on top, white strip below for the subtitle.'
+    strip: 'Image on top, white strip below for the text.'
   };
 
   // ── state ──
   var S = {
     bgSel: { type: 'builtin', key: 'gradient_ocean' },
-    title: '', subtitle: '', align: 'left', bold: false, size: '288x180',
+    title: '', align: 'center', bold: false, size: '288x180',
     builderOpen: false, mode: 'logo', uploadByMode: {},
-    logoPos: 'bottom-right', bgColor: '#0f3460', fit: 'contain', stripTransparent: true,
-    titleColor: '#ffffff', subColor: 'auto',
+    logoPos: 'bottom-right', bgColor: '#0f3460', fit: 'contain', stripTransparent: false, stripAuto: true,
+    titleColor: 'auto',
     assets: [], library: [], history: [],
     pickerTarget: null, hue: 215, sat: 0.94, vv: 0.38
   };
 
   var $ = function (id) { return document.getElementById(id); };
   var canvas = $('canvas'), ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
   var imgCache = {};
   var slDragging = false, toastTimer = null;
 
@@ -51,10 +51,10 @@
   }
   function saveSettings() {
     write('icongen_settings', {
-      bgSel: S.bgSel, title: S.title, subtitle: S.subtitle, align: S.align, bold: S.bold,
+      bgSel: S.bgSel, title: S.title, align: S.align, bold: S.bold,
       size: S.size, mode: S.mode, uploadByMode: S.uploadByMode, logoPos: S.logoPos,
-      bgColor: S.bgColor, fit: S.fit, stripTransparent: S.stripTransparent,
-      titleColor: S.titleColor, subColor: S.subColor
+      bgColor: S.bgColor, fit: S.fit, stripTransparent: S.stripTransparent, stripAuto: S.stripAuto,
+      titleColor: S.titleColor
     });
   }
   function update(partial) {
@@ -105,44 +105,103 @@
     return null;
   }
 
+  // Sample the average colour of an image's four corners, so a logo on a solid
+  // background can extend seamlessly into the empty side/top areas.
+  var edgeCache = {};
+  function edgeColor(key, img) {
+    if (edgeCache[key]) return edgeCache[key];
+    try {
+      var s = 10;
+      var oc = document.createElement('canvas');
+      oc.width = s; oc.height = s;
+      var octx = oc.getContext('2d');
+      octx.drawImage(img, 0, 0, s, s);
+      var pts = [[0, 0], [s - 1, 0], [0, s - 1], [s - 1, s - 1]];
+      var r = 0, g = 0, b = 0;
+      pts.forEach(function (p) {
+        var d = octx.getImageData(p[0], p[1], 1, 1).data;
+        r += d[0]; g += d[1]; b += d[2];
+      });
+      var n = pts.length;
+      var col = 'rgb(' + Math.round(r / n) + ',' + Math.round(g / n) + ',' + Math.round(b / n) + ')';
+      edgeCache[key] = col;
+      return col;
+    } catch (e) { return null; }
+  }
+
+  // Find the bounding box of the actual content, ignoring a uniform (or transparent)
+  // border baked into the image, so a padded logo can be shown larger. Returns a
+  // source rectangle {sx,sy,sw,sh}; falls back to the full image when nothing to trim.
+  var trimCache = {};
+  function contentBounds(key, img) {
+    if (trimCache[key]) return trimCache[key];
+    var full = { sx: 0, sy: 0, sw: img.width, sh: img.height };
+    try {
+      var scale = Math.min(1, 200 / Math.max(img.width, img.height));
+      var w = Math.max(1, Math.round(img.width * scale));
+      var h = Math.max(1, Math.round(img.height * scale));
+      var oc = document.createElement('canvas'); oc.width = w; oc.height = h;
+      var octx = oc.getContext('2d');
+      octx.drawImage(img, 0, 0, w, h);
+      var data = octx.getImageData(0, 0, w, h).data;
+      var r0 = data[0], g0 = data[1], b0 = data[2], a0 = data[3];
+      var thresh = 48, minX = w, minY = h, maxX = -1, maxY = -1;
+      for (var y = 0; y < h; y++) {
+        for (var x = 0; x < w; x++) {
+          var i = (y * w + x) * 4, a = data[i + 3], diff;
+          if (a0 < 16) diff = a > 24 ? 999 : 0;   // transparent border → content = opaque pixels
+          else diff = Math.abs(data[i] - r0) + Math.abs(data[i + 1] - g0) + Math.abs(data[i + 2] - b0) + Math.abs(a - a0);
+          if (diff > thresh) {
+            if (x < minX) minX = x; if (x > maxX) maxX = x;
+            if (y < minY) minY = y; if (y > maxY) maxY = y;
+          }
+        }
+      }
+      if (maxX >= minX && maxY >= minY && (maxX - minX < w - 2 || maxY - minY < h - 2)) {
+        var inv = 1 / scale;
+        full = {
+          sx: Math.round(minX * inv), sy: Math.round(minY * inv),
+          sw: Math.round((maxX - minX + 1) * inv), sh: Math.round((maxY - minY + 1) * inv)
+        };
+      }
+    } catch (e) { /* cross-origin or read failure → use full image */ }
+    trimCache[key] = full;
+    return full;
+  }
+
   function currentAsset(kind) {
     var id = S.uploadByMode[kind];
     for (var i = 0; i < S.assets.length; i++) if (S.assets[i].id === id) return S.assets[i];
     return null;
   }
 
-  function hasStrip() {
-    if (S.bgSel.type === 'builtin') return false;
+  // Height of the white text strip for the current background, in canvas px (0 = none).
+  // Saved templates keep the strip height they were baked with so text lines up.
+  function stripHeight() {
+    if (S.bgSel.type === 'builtin') return 0;
     if (S.bgSel.type === 'saved') {
       var t = S.library.find(function (x) { return x.id === S.bgSel.id; });
-      return !!(t && t.hasWhiteStrip);
+      if (!t) return 0;
+      return t.stripH || (t.hasWhiteStrip ? 140 : 0);
     }
-    return S.mode !== 'picture';
+    return STRIP_H;
   }
 
   // ── scene renderer ──
-  function wrapText(c, text, x, y, maxWidth, lineHeight) {
-    var words = text.split(' '), line = '';
-    for (var n = 0; n < words.length; n++) {
-      var test = line + words[n] + ' ';
-      if (c.measureText(test).width > maxWidth && n > 0) {
-        c.fillText(line, x, y);
-        line = words[n] + ' ';
-        y += lineHeight;
-      } else line = test;
-    }
-    c.fillText(line, x, y);
-  }
-
   function drawScene(c, includeText) {
     c.clearRect(0, 0, W, H);
     var pending = false;
 
-    function drawStrip(accent) {
-      c.fillStyle = accent;
-      c.fillRect(0, H - STRIP_H - 3, W, 3);
+    function drawStrip() {
+      var top = H - STRIP_H;
+      // soft shadow above the strip for a little depth (instead of a hard line)
+      var sg = c.createLinearGradient(0, top - 28, 0, top);
+      sg.addColorStop(0, 'rgba(0,0,0,0)');
+      sg.addColorStop(1, 'rgba(0,0,0,0.13)');
+      c.fillStyle = sg;
+      c.fillRect(0, top - 28, W, 28);
       c.fillStyle = '#ffffff';
-      c.fillRect(0, H - STRIP_H, W, STRIP_H);
+      c.fillRect(0, top, W, STRIP_H);
     }
     function drawCover(img, areaH) {
       var r = Math.max(W / img.width, areaH / img.height);
@@ -174,39 +233,27 @@
     } else {
       // custom (live builder)
       var areaH = H - STRIP_H, a, img;
-      if (S.mode === 'picture') {
-        a = currentAsset('picture');
-        if (a) {
-          img = getImg('asset:' + a.id, a.dataUrl);
-          if (img) drawCover(img, H); else pending = true;
-        } else {
-          c.fillStyle = '#F3EFE7'; c.fillRect(0, 0, W, H);
-          c.fillStyle = '#807A71'; c.font = '500 26px "IBM Plex Sans", sans-serif';
-          c.textAlign = 'center'; c.fillText('Choose an image to fill the canvas', W / 2, H / 2);
-          return true;
-        }
-      } else if (S.mode === 'strip') {
+      if (S.mode === 'strip') {
         a = currentAsset('strip');
         if (a) {
           img = getImg('asset:' + a.id, a.dataUrl);
           if (img) {
-            if (S.fit === 'cover') {
-              drawCover(img, areaH);
-              drawStrip('rgba(0,0,0,0.25)');
-            } else {
-              if (!S.stripTransparent) { c.fillStyle = S.bgColor; c.fillRect(0, 0, W, areaH); }
-              var r = Math.min(W / img.width, areaH / img.height);
-              c.drawImage(img, (W - img.width * r) / 2, (areaH - img.height * r) / 2, img.width * r, img.height * r);
-              drawStrip(S.stripTransparent ? 'rgba(0,0,0,0.22)' : S.bgColor);
-            }
+            var fill = S.stripAuto ? edgeColor('asset:' + a.id, img)
+              : (S.stripTransparent ? null : S.bgColor);
+            if (fill) { c.fillStyle = fill; c.fillRect(0, 0, W, areaH); }
+            var cb = contentBounds('asset:' + a.id, img);
+            var r = Math.min(W / cb.sw, areaH / cb.sh) * 0.82;   // 0.82 = balanced margin
+            var dw = cb.sw * r, dh = cb.sh * r;
+            c.drawImage(img, cb.sx, cb.sy, cb.sw, cb.sh, (W - dw) / 2, (areaH - dh) / 2, dw, dh);
+            drawStrip();
           } else pending = true;
         } else {
-          if (S.stripTransparent) {
-            drawStrip('rgba(0,0,0,0.22)');
+          if (S.stripAuto || S.stripTransparent) {
+            drawStrip();
             c.fillStyle = '#807A71';
           } else {
             c.fillStyle = S.bgColor; c.fillRect(0, 0, W, areaH);
-            drawStrip(S.bgColor);
+            drawStrip();
             c.fillStyle = 'rgba(255,255,255,0.7)';
           }
           c.font = '500 26px "IBM Plex Sans", sans-serif';
@@ -215,7 +262,7 @@
       } else {
         // logo + colour
         c.fillStyle = S.bgColor; c.fillRect(0, 0, W, H);
-        drawStrip(S.bgColor);
+        drawStrip();
         a = currentAsset('logo');
         if (a) {
           img = getImg('asset:' + a.id, a.dataUrl);
@@ -236,24 +283,32 @@
       }
     }
 
-    if (!includeText) return !pending;
+    if (!includeText || !S.title) return !pending;
 
-    var strip = hasStrip();
-    if (S.title) {
-      c.font = '500 90px "IBM Plex Sans", sans-serif';
-      c.textAlign = 'left';
-      c.fillStyle = S.titleColor || '#ffffff';
-      wrapText(c, S.title, 60, 120, W - 120, 100);
+    var sh = stripHeight();
+    var padX = 60, maxTextW = W - padX * 2;
+    var ax = S.align === 'center' ? W / 2 : S.align === 'right' ? W - padX : padX;
+    c.textAlign = S.align === 'center' ? 'center' : S.align === 'right' ? 'right' : 'left';
+    c.textBaseline = 'middle';
+
+    // shrink the font until the text fits the available width, so it never clips
+    var weight = S.bold ? '700' : '600';
+    var size = sh > 0 ? 58 : 92;
+    c.font = weight + ' ' + size + 'px "IBM Plex Sans", sans-serif';
+    while (size > 22 && c.measureText(S.title).width > maxTextW) {
+      size -= 2;
+      c.font = weight + ' ' + size + 'px "IBM Plex Sans", sans-serif';
     }
-    if (S.subtitle) {
-      var x = S.align === 'center' ? W / 2 : S.align === 'right' ? W - 60 : 60;
-      c.font = (S.bold ? '700 ' : '400 ') + '36px "IBM Plex Sans", sans-serif';
-      c.textAlign = S.align;
-      c.fillStyle = (!S.subColor || S.subColor === 'auto')
-        ? (strip ? '#1a1a2e' : 'rgba(255,255,255,0.72)')
-        : S.subColor;
-      c.fillText(S.subtitle, x, strip ? 494 : 490);
+
+    var auto = !S.titleColor || S.titleColor === 'auto';
+    if (sh > 0) {
+      c.fillStyle = auto ? '#1a1a2e' : S.titleColor;       // dark on the white strip
+      c.fillText(S.title, ax, (H - sh) + sh / 2);
+    } else {
+      c.fillStyle = auto ? '#ffffff' : S.titleColor;       // light over an image / gradient
+      c.fillText(S.title, ax, H / 2);
     }
+    c.textBaseline = 'alphabetic';
     return !pending;
   }
 
@@ -369,28 +424,31 @@
       : (S.mode === 'logo' ? 'Choose your logo' : 'Choose a picture');
 
     $('pos-block').hidden = S.mode !== 'logo';
-    $('fit-block').hidden = S.mode !== 'strip';
-    $('color-block').hidden = !(S.mode === 'logo' || (S.mode === 'strip' && S.fit === 'contain'));
+    $('color-block').hidden = !(S.mode === 'logo' || S.mode === 'strip');
     $('logo-pos').value = S.logoPos;
-    $('fit').value = S.fit;
 
-    // bg swatches (with transparent option in strip mode + custom button)
-    var transparentActive = S.mode === 'strip' && S.stripTransparent;
+    // bg swatches (with auto + transparent options in strip mode + custom button)
+    var autoActive = S.mode === 'strip' && S.stripAuto;
+    var transparentActive = S.mode === 'strip' && !S.stripAuto && S.stripTransparent;
     renderSwatchRow('bg-swatches', PAL,
-      transparentActive ? null : S.bgColor,
+      (autoActive || transparentActive) ? null : S.bgColor,
       function (color) {
         var hsv = hexToHsv(color);
-        update({ bgColor: color, stripTransparent: false, bgSel: { type: 'custom' }, hue: hsv.h, sat: hsv.s, vv: hsv.v });
+        update({ bgColor: color, stripAuto: false, stripTransparent: false, bgSel: { type: 'custom' }, hue: hsv.h, sat: hsv.s, vv: hsv.v });
         if (S.pickerTarget === 'bg') updatePicker();
       },
       [function (box) {
         if (S.mode !== 'strip') return;
+        var auto = el('button', 'auto-btn', box);
+        auto.type = 'button';
+        auto.textContent = 'Auto';
+        auto.title = 'Match the picture’s edge colour';
+        if (autoActive) auto.classList.add('sel');
+        auto.onclick = function () { update({ stripAuto: true, stripTransparent: false, bgSel: { type: 'custom' } }); };
         var sw = el('div', 'swatch transparent', box);
         sw.title = 'Transparent';
         if (transparentActive) sw.classList.add('sel');
-        sw.onclick = function () { update({ stripTransparent: true, bgSel: { type: 'custom' } }); };
-      }, function (box) {
-        // placeholder — custom button appended after palette below
+        sw.onclick = function () { update({ stripTransparent: true, stripAuto: false, bgSel: { type: 'custom' } }); };
       }]);
     // custom colour button for bg
     (function () {
@@ -403,26 +461,18 @@
 
     // text controls
     $('title').value === S.title || ($('title').value = S.title);
-    $('subtitle').value === S.subtitle || ($('subtitle').value = S.subtitle);
     document.querySelectorAll('#align-seg button').forEach(function (b) {
       b.classList.toggle('sel', b.dataset.align === S.align);
     });
     $('bold-btn').classList.toggle('sel', S.bold);
 
-    renderSwatchRow('title-swatches', TEXT_PAL, S.titleColor, function (color) {
+    $('title-auto').classList.toggle('sel', S.titleColor === 'auto');
+    renderSwatchRow('title-swatches', TEXT_PAL, S.titleColor === 'auto' ? null : S.titleColor, function (color) {
       update({ titleColor: color });
       if (S.pickerTarget === 'title') updatePicker();
     });
-    $('title-custom').querySelector('.dot').style.background = S.titleColor;
+    $('title-custom').querySelector('.dot').style.background = S.titleColor === 'auto' ? '#1a1a2e' : S.titleColor;
     $('title-custom').classList.toggle('sel', S.pickerTarget === 'title');
-
-    $('sub-auto').classList.toggle('sel', S.subColor === 'auto');
-    renderSwatchRow('sub-swatches', TEXT_PAL, S.subColor === 'auto' ? null : S.subColor, function (color) {
-      update({ subColor: color });
-      if (S.pickerTarget === 'sub') updatePicker();
-    });
-    $('sub-custom').querySelector('.dot').style.background = S.subColor === 'auto' ? '#ffffff' : S.subColor;
-    $('sub-custom').classList.toggle('sel', S.pickerTarget === 'sub');
 
     // size + preview
     document.querySelectorAll('.size-btn').forEach(function (b) {
@@ -431,7 +481,7 @@
     $('export-note').textContent = S.size.replace('x', ' × ');
     $('file-hint').textContent = fileName();
     $('canvas-wrap').classList.toggle('checker',
-      S.bgSel.type === 'custom' && transparentActive && S.fit === 'contain');
+      S.bgSel.type === 'custom' && transparentActive);
 
     // picker placement + visibility
     var picker = $('picker');
@@ -446,19 +496,18 @@
 
   // ── colour picker ──
   function pickerColor() {
-    if (S.pickerTarget === 'title') return S.titleColor;
-    if (S.pickerTarget === 'sub') return S.subColor === 'auto' ? '#ffffff' : S.subColor;
+    if (S.pickerTarget === 'title') return S.titleColor === 'auto' ? '#1a1a2e' : S.titleColor;
     return S.bgColor;
   }
   function togglePicker(target) {
     if (S.pickerTarget === target) { update({ pickerTarget: null }); return; }
-    var hsv = hexToHsv(target === 'title' ? S.titleColor : target === 'sub' ? (S.subColor === 'auto' ? '#ffffff' : S.subColor) : S.bgColor) || { h: 215, s: 0.9, v: 0.4 };
+    var hsv = hexToHsv(target === 'title' ? (S.titleColor === 'auto' ? '#1a1a2e' : S.titleColor) : S.bgColor) || { h: 215, s: 0.9, v: 0.4 };
     update({ pickerTarget: target, hue: hsv.h, sat: hsv.s, vv: hsv.v });
     updatePicker();
   }
   function updatePicker() {
     if (!S.pickerTarget) return;
-    $('picker-label').textContent = S.pickerTarget === 'title' ? 'Title colour' : S.pickerTarget === 'sub' ? 'Subtitle colour' : 'Background colour';
+    $('picker-label').textContent = S.pickerTarget === 'title' ? 'Text colour' : 'Background colour';
     $('sl').style.backgroundImage = 'linear-gradient(to top, #000, rgba(0,0,0,0)), linear-gradient(to right, #fff, hsl(' + Math.round(S.hue) + ', 100%, 50%))';
     var dot = $('sl-dot');
     dot.style.left = (S.sat * 100).toFixed(1) + '%';
@@ -472,8 +521,7 @@
     var hex = hsvToHex(hue, sat, vv);
     var partial = { hue: hue, sat: sat, vv: vv };
     if (S.pickerTarget === 'title') partial.titleColor = hex;
-    else if (S.pickerTarget === 'sub') partial.subColor = hex;
-    else { partial.bgColor = hex; partial.stripTransparent = false; partial.bgSel = { type: 'custom' }; }
+    else { partial.bgColor = hex; partial.stripTransparent = false; partial.stripAuto = false; partial.bgSel = { type: 'custom' }; }
     update(partial);
     updatePicker();
   }
@@ -512,7 +560,7 @@
     off.width = W; off.height = H;
     if (!drawScene(off.getContext('2d'), false)) { toast('Image still loading — try again in a second'); return; }
     var name = $('tpl-name').value.trim() || ('Custom ' + (S.library.length + 1));
-    var item = { id: 'custom_' + Date.now(), name: name, dataUrl: off.toDataURL('image/png'), canvasX: W, canvasY: H, hasWhiteStrip: S.mode !== 'picture' };
+    var item = { id: 'custom_' + Date.now(), name: name, dataUrl: off.toDataURL('image/png'), canvasX: W, canvasY: H, hasWhiteStrip: true, stripH: STRIP_H };
     var library = S.library.concat([item]);
     if (write('icongen_library', library)) {
       $('tpl-name').value = '';
@@ -542,10 +590,10 @@
       thumb: th.toDataURL('image/png'),
       title: S.title || 'Untitled',
       snapshot: {
-        bgSel: S.bgSel, title: S.title, subtitle: S.subtitle, align: S.align, bold: S.bold,
+        bgSel: S.bgSel, title: S.title, align: S.align, bold: S.bold,
         size: S.size, mode: S.mode, uploadByMode: S.uploadByMode, logoPos: S.logoPos,
-        bgColor: S.bgColor, fit: S.fit, stripTransparent: S.stripTransparent,
-        titleColor: S.titleColor, subColor: S.subColor
+        bgColor: S.bgColor, fit: S.fit, stripTransparent: S.stripTransparent, stripAuto: S.stripAuto,
+        titleColor: S.titleColor
       }
     };
     var history = [entry].concat(S.history).slice(0, 12);
@@ -568,14 +616,12 @@
 
   // ── event wiring ──
   $('title').addEventListener('input', function () { update({ title: this.value }); });
-  $('subtitle').addEventListener('input', function () { update({ subtitle: this.value }); });
   document.querySelectorAll('#align-seg button').forEach(function (b) {
     b.addEventListener('click', function () { update({ align: b.dataset.align }); });
   });
   $('bold-btn').addEventListener('click', function () { update({ bold: !S.bold }); });
-  $('sub-auto').addEventListener('click', function () { update({ subColor: 'auto' }); });
+  $('title-auto').addEventListener('click', function () { update({ titleColor: 'auto' }); });
   $('title-custom').addEventListener('click', function () { togglePicker('title'); });
-  $('sub-custom').addEventListener('click', function () { togglePicker('sub'); });
   document.querySelectorAll('.size-btn').forEach(function (b) {
     b.addEventListener('click', function () { update({ size: b.dataset.size }); });
   });
@@ -583,7 +629,6 @@
     b.addEventListener('click', function () { update({ mode: b.dataset.mode, bgSel: { type: 'custom' } }); });
   });
   $('logo-pos').addEventListener('change', function () { update({ logoPos: this.value, bgSel: { type: 'custom' } }); });
-  $('fit').addEventListener('change', function () { update({ fit: this.value, bgSel: { type: 'custom' } }); });
   $('file-input').addEventListener('change', function (e) {
     handleFile(e.target.files[0]);
     e.target.value = '';
@@ -627,8 +672,7 @@
     var hex = (this.value.charAt(0) === '#' ? this.value : '#' + this.value).toLowerCase();
     var partial = { hue: hsv.h, sat: hsv.s, vv: hsv.v };
     if (S.pickerTarget === 'title') partial.titleColor = hex;
-    else if (S.pickerTarget === 'sub') partial.subColor = hex;
-    else { partial.bgColor = hex; partial.stripTransparent = false; partial.bgSel = { type: 'custom' }; }
+    else { partial.bgColor = hex; partial.stripTransparent = false; partial.stripAuto = false; partial.bgSel = { type: 'custom' }; }
     update(partial);
     updatePicker();
   });
@@ -641,6 +685,7 @@
     S.history = read('icongen_history', []);
     if (settings) {
       Object.assign(S, settings);
+      if (S.mode !== 'logo' && S.mode !== 'strip') S.mode = 'strip';
       if (S.bgSel && S.bgSel.type === 'saved' &&
           !S.library.find(function (t) { return t.id === S.bgSel.id; })) {
         S.bgSel = { type: 'builtin', key: 'gradient_ocean' };
@@ -649,7 +694,6 @@
     }
     S.pickerTarget = null;
     $('title').value = S.title;
-    $('subtitle').value = S.subtitle;
     sync();
     draw();
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw);
