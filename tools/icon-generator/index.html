@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Icon Generator — Qlikard Tools</title>
-  <meta name="description" content="Consistent thumbnails for Qlik apps and sheets — a free browser tool by Qlikard." />
+  <meta name="description" content="Consistent, on-brand thumbnails for Qlik apps and sheets — a free browser tool by Qlikard." />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231F8B4C'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='%23FAF7F2' text-anchor='middle'>Q</text></svg>" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -66,8 +66,8 @@
     .danger-link:hover { color: var(--bad); }
 
     .builder { margin-top: 14px; background: var(--paper-2); border: 1px solid var(--rule); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 14px; }
-    .pillrow { display: flex; gap: 6px; }
-    .pill { border: 1px solid var(--rule); color: var(--ink-3); border-radius: 999px; padding: 4px 12px; font-family: var(--font-sans); font-size: 12.5px; background: var(--paper); cursor: pointer; transition: border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
+    .pillrow { display: flex; gap: 6px; flex-wrap: wrap; }
+    .pill { border: 1px solid var(--rule); color: var(--ink-3); border-radius: 999px; padding: 4px 12px; font-family: var(--font-sans); font-size: 12.5px; background: var(--paper); cursor: pointer; white-space: nowrap; transition: border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
     .pill:hover { border-color: var(--rule-strong); color: var(--ink); }
     .pill.sel { border-color: var(--green); color: var(--ink); }
 
@@ -174,7 +174,7 @@
 
 <header class="page-head">
   <h1>Icon Generator</h1>
-  <p>Consistent thumbnails for Qlik apps and sheets. Pick a background, add text, download the PNG — the preview updates as you type.</p>
+  <p>Professional thumbnails for Qlik apps and sheets. Pick a brand colour, add a logo and a label, download the PNG — the preview updates as you type.</p>
 </header>
 
 <main class="gen-grid">
@@ -205,8 +205,20 @@
     </section>
 
     <section class="sec">
+      <div class="sec-label">Label <span style="text-transform:none; font-weight:400; letter-spacing:0; color:var(--ink-4);">— what is this?</span></div>
+      <div id="label-pills" class="pillrow"></div>
+      <input type="text" id="label-custom" class="input" placeholder="Type a label…" style="margin-top:8px; display:none;">
+      <div class="hint small" style="margin-top:8px">Sits under the title, like the "Certified" tag on Qlik's own hub tiles. Pick "None" to leave it off.</div>
+    </section>
+
+    <section class="sec">
       <div class="sec-label">Background</div>
       <div id="tiles" class="tiles"></div>
+      <div id="pattern-color-block" hidden style="margin-top:12px">
+        <div class="field-label">Colour</div>
+        <div id="pattern-color-swatches" class="swatches"></div>
+        <div id="pattern-color-picker-slot"></div>
+      </div>
       <div id="delete-tpl-row" hidden><a id="delete-tpl" class="danger-link">Delete this saved template</a></div>
 
       <div id="builder" class="builder" hidden>
@@ -239,9 +251,13 @@
         </div>
 
         <div id="color-block" hidden>
-          <div class="field-label">Background colour</div>
+          <div class="field-label">Brand / background colour</div>
           <div id="bg-swatches" class="swatches"></div>
           <div id="bg-picker-slot"></div>
+          <div id="logo-pattern-block" hidden style="margin-top:12px">
+            <div class="mini-label">Or a background pattern</div>
+            <div id="logo-pattern-tiles" class="tiles"></div>
+          </div>
         </div>
 
         <div class="saverow">

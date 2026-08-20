@@ -18,6 +18,24 @@ const CATEGORIES = {
 
 const POSTS = [
   {
+    id: 'match-vs-equals-benchmark',
+    title: 'Should You Ever Use "=" in Qlik? Match(), MixMatch() and = on 10 Million Rows',
+    excerpt: 'Everyone writes WHERE Dimension1 = \'A\'. I put it up against Match() and MixMatch() over 10 million rows, 15 runs each — and Match() came out fastest. But the spread was only 3%, which is the real finding: the comparison isn\'t where the time goes, so you get to choose on flexibility instead.',
+    category: 'scripts',
+    date: '2026-08-20',
+    file: 'posts/match-vs-equals-benchmark.html',
+    readTime: 6,
+  },
+  {
+    id: 'recno-vs-rowno-benchmark',
+    title: 'RecNo() vs RowNo(): A 6× Performance Difference for the Same Row Counter',
+    excerpt: 'Two functions that look interchangeable — and on an unfiltered load they return the identical sequence. But on 3 million rows, RowNo() took 48 seconds and RecNo() took 7. Here\'s the benchmark, when the two genuinely differ, and how to get a gapless sequence at RecNo() speed.',
+    category: 'scripts',
+    date: '2026-08-20',
+    file: 'posts/recno-vs-rowno-benchmark.html',
+    readTime: 6,
+  },
+  {
     id: 'cicd-checks-qlik-automate',
     title: 'CI/CD for Qlik Apps — Automated Quality Gates with Qlik Automate',
     excerpt: 'Software teams never merge without a pipeline. Qlik apps rarely get the same treatment — but they can. Fire an automation on the App Published webhook and run real checks: validate the load script, catch a stray EXIT SCRIPT or hard-coded lib path with Python, flag apps over a size budget, and surface slow-rendering charts — opening a GitHub issue for each failure. Built on Qlik\'s own evaluation template.',

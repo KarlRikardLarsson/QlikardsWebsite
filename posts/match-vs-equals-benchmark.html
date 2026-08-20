@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Should You Ever Use "=" in Qlik? Match(), MixMatch() and = on 10 Million Rows — Qlikard</title>
+  <meta name="post-id" content="match-vs-equals-benchmark" />
+  <meta name="post-category" content="scripts" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2316a34a'/><text x='16' y='22' font-family='system-ui,sans-serif' font-size='21' font-weight='700' fill='white' text-anchor='middle'>Q</text></svg>" />
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="../index.html">Qlik<span>ard</span></a>
+    <ul class="nav-links">
+      <li><a href="../index.html">Home</a></li>
+      <li><a href="../about.html">About</a></li>
+      <li>
+        <a class="nav-icon-link" href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener" aria-label="LinkedIn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+            <rect x="2" y="9" width="4" height="12"/>
+            <circle cx="4" cy="4" r="2"/>
+          </svg>
+        </a>
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<main class="post-layout">
+
+  <div class="post-header">
+    <a class="back" href="../index.html">← Back</a>
+    <span class="tag scripts">Scripts</span>
+    <h1 class="post-title">Should You Ever Use "=" in Qlik? Match(), MixMatch() and = on 10 Million Rows</h1>
+    <div class="post-meta-bar">
+      <span>August 20, 2026</span>
+      <span>·</span>
+      <span>6 min read</span>
+    </div>
+  </div>
+
+  <div class="post-content">
+
+    <p>
+      Everyone writes <code>WHERE Dimension1 = 'A'</code>. It's the shortest thing that works, it
+      reads like SQL, and it's what your fingers type without asking your brain. But Qlik gives you
+      <code>Match()</code> and <code>MixMatch()</code> for the same job, and they scale to more
+      values without touching the structure of the clause.
+    </p>
+
+    <p>
+      So is <code>=</code> the fast path you're rewarded for using, or just a habit? I ran all three
+      against a <strong>10 million row</strong> resident load, <strong>15 timed runs each</strong> —
+      45 iterations in total. The answer surprised me: <code>Match()</code> came out
+      <em>fastest</em>, and <code>=</code> was in the middle.
+    </p>
+
+    <h2>The three ways to filter one value</h2>
+
+    <p>
+      All three of these keep the same rows — the uppercase <code>'A'</code> out of a
+      single-character dimension:
+    </p>
+
+<pre><code>WHERE Dimension1 = 'A'                 // the operator
+WHERE Match(Dimension1,'A')            // case-sensitive
+WHERE MixMatch(Dimension1,'A')         // case-insensitive</code></pre>
+
+    <p>
+      They are not quite semantically identical, and that matters more than the timings do — I'll
+      come back to it. First, the numbers.
+    </p>
+
+    <h2>Test setup</h2>
+
+    <p>
+      Rather than write three near-identical blocks, the expressions live in an inline
+      <code>TestPlan</code> table and the script loops over them, dollar-expanding each one straight
+      into the <code>WHERE</code> clause. Every run is timed with the same <code>sLog</code>
+      subroutine, and each expression is repeated <code>vRepeats</code> times so the reported figure
+      is an average rather than one lucky pass.
+    </p>
+
+<pre><code>TestPlan:
+LOAD * INLINE [
+Grp|TestName|Expression
+1-LowCard|d1_mixmatch|MixMatch(Dimension1,'A')
+1-LowCard|d1_equals|Dimension1='A'
+1-LowCard|d1_match|Match(Dimension1,'A')
+] (delimiter is '|');
+
+LET vTestCount = NoOfRows('TestPlan');
+TRACE &gt;&gt;&gt; running $(vTestCount) tests, $(vRepeats) timed runs each, over $(vRecordCount) rows;
+
+FOR t = 0 TO $(vTestCount) - 1
+
+    LET vGrp  = Peek('Grp',       $(t),'TestPlan');
+    LET vName = Peek('TestName',  $(t),'TestPlan');
+    LET vExpr = Peek('Expression',$(t),'TestPlan');
+
+    TRACE &gt;&gt;&gt; $(vName): $(vExpr);
+
+    FOR r = 1 TO $(vRepeats)
+
+        LET vTestStart = timestamp(now(),'hh:mm:ss.fff');
+
+        Tmp_Run:
+        NOCONCATENATE
+        LOAD * RESIDENT Transactions
+        WHERE $(vExpr);
+
+        LET vHits = NoOfRows('Tmp_Run');
+
+        DROP TABLE Tmp_Run;
+
+        CALL sLog('$(vExpr)','$(vTestStart)',timestamp(now(),'hh:mm:ss.fff'));
+
+    NEXT r
+
+NEXT t</code></pre>
+
+    <p>
+      All three returned <strong>384,630 rows</strong> out of 10 million — about 1/26th, exactly what
+      you'd expect from a random single letter. Same output, three ways of asking for it.
+    </p>
+
+    <div class="tip-box">
+      This data-driven test harness is worth stealing on its own. Adding a fourth expression to
+      compare is one line in the <code>INLINE</code> block — no copy-pasting a load block and
+      forgetting to rename the log label. The <code>Grp</code> column lets you tag families of tests
+      (low vs high cardinality, say) and split them in the chart afterwards.
+    </div>
+
+    <h2>Results</h2>
+
+    <img src="../images/match-vs-equals-benchmark.png" alt="Bar chart of average filter time over 10 million rows: MixMatch 8.40 seconds, equals 8.33 seconds, Match 8.13 seconds — three near-identical bars" />
+
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Expression</th>
+          <th>Avg time</th>
+          <th>vs fastest</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Match(Dimension1,'A')</td>
+          <td class="good">8.13 s</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>Dimension1='A'</td>
+          <td class="good">8.33 s</td>
+          <td>+2.5%</td>
+        </tr>
+        <tr>
+          <td>MixMatch(Dimension1,'A')</td>
+          <td class="ok">8.40 s</td>
+          <td>+3.3%</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>
+      Three bars you can barely tell apart. The whole spread is <strong>0.27 seconds across 10
+      million rows</strong> — about 3%. The interesting result isn't that <code>Match()</code> won;
+      it's that <code>=</code> didn't.
+    </p>
+
+    <h2>Read this honestly: it's a tie</h2>
+
+    <p>
+      I'd love to tell you <code>Match()</code> is 3% faster and you should go rewrite your scripts.
+      I don't think the data supports that. A 3% gap over 15 runs, on a machine that is also being a
+      machine, is the sort of margin that moves when someone opens a browser tab.
+    </p>
+
+    <p>
+      There's also an ordering effect built into the harness worth naming: the loop runs all 15
+      repeats of the first expression, <em>then</em> all 15 of the second, and so on. MixMatch was
+      first in the plan and came last in the results; Match was last in the plan and came first.
+      Any warm-up — caches settling, memory allocated and reused across runs — lands
+      disproportionately on whatever went first. Interleaving the repeats instead of grouping them
+      would rule that out, and I'd expect it to shrink the gap further rather than widen it.
+    </p>
+
+    <div class="tip-box">
+      The right conclusion from this chart is not "Match is faster." It's <strong>"the comparison
+      isn't where the time goes."</strong> Filtering 10M rows costs ~8 seconds because Qlik reads
+      10M rows and materialises 384,630 of them into a new table. The per-row comparison — one
+      integer lookup against a symbol table, whichever syntax you wrote — is noise on top of that.
+      No syntax choice is going to rescue a slow <code>WHERE</code>.
+    </div>
+
+    <h2>So pick on semantics, not speed</h2>
+
+    <p>
+      Once performance is off the table, the differences that are left are the real ones — and
+      they're about case handling and flexibility.
+    </p>
+
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>=</th>
+          <th>Match()</th>
+          <th>MixMatch()</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Case sensitivity</td>
+          <td>Case-sensitive</td>
+          <td>Case-sensitive</td>
+          <td>Case-<strong>in</strong>sensitive</td>
+        </tr>
+        <tr>
+          <td>Multiple values</td>
+          <td>Needs <code>OR</code> per value</td>
+          <td>Comma-separated list</td>
+          <td>Comma-separated list</td>
+        </tr>
+        <tr>
+          <td>Returns</td>
+          <td>True / False</td>
+          <td><em>Which</em> value matched (1-based)</td>
+          <td><em>Which</em> value matched (1-based)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>
+      <strong>The multiple-values case is where <code>=</code> falls apart.</strong> One value looks
+      tidy. Five values means five comparisons and an <code>OR</code> chain, and every time the list
+      changes you're editing operators rather than data:
+    </p>
+
+<pre><code>// = : the clause grows with the list
+WHERE Dimension1='A' OR Dimension1='B' OR Dimension1='C' OR Dimension1='D';
+
+// Match() : the clause stays the same shape
+WHERE Match(Dimension1,'A','B','C','D');</code></pre>
+
+    <p>
+      And because <code>Match()</code> returns the <em>position</em> of the value that matched, not
+      just a boolean, you get an ordering primitive for free. That's genuinely useful outside a
+      <code>WHERE</code> clause — a priority sort, a status rank, a custom sequence with no mapping
+      table:
+    </p>
+
+<pre><code>LOAD
+    Status,
+    Match(Status,'New','Open','Pending','Closed') AS StatusSort
+RESIDENT Tickets;</code></pre>
+
+    <p>
+      <code>=</code> can't do that at any price. It answers one question and returns one bit.
+    </p>
+
+    <div class="tip-box">
+      <strong>Watch the case sensitivity.</strong> <code>Match()</code> is case-sensitive and
+      <code>MixMatch()</code> is its case-insensitive twin — that's the only difference between
+      them, and it's why swapping one for the other silently changes your row counts. In this test
+      it made no difference because <code>Dimension1</code> only ever holds uppercase letters. On
+      real data with mixed casing, <code>MixMatch(Status,'closed')</code> catches
+      <code>Closed</code>, <code>CLOSED</code> and <code>closed</code>, and <code>Match()</code>
+      catches exactly one of them. Choose that behaviour deliberately rather than inheriting it from
+      whichever function name you typed.
+    </div>
+
+    <h2>So — should you ever use "="?</h2>
+
+    <p>
+      Yes, and I'm not going to pretend otherwise. For a single value in a
+      <code>WHERE</code> clause, <code>Dimension1='A'</code> is clear, conventional, and costs
+      nothing measurable. Rewriting working scripts to chase 3% would be busywork.
+    </p>
+
+    <p>
+      But when I'm writing something new, <code>Match()</code> is the better default, and this
+      benchmark is what convinced me there's no performance penalty for using it:
+    </p>
+
+    <ul>
+      <li><strong>It doesn't change shape when the list grows.</strong> One value or twenty, the clause looks the same.</li>
+      <li><strong>The values stay data.</strong> A comma-separated list is something you can generate from a variable or a field; an <code>OR</code> chain is something you have to write.</li>
+      <li><strong>Case behaviour is explicit</strong> in the function name — <code>Match</code> or <code>MixMatch</code> — instead of implied by an operator.</li>
+      <li><strong>It returns a position</strong>, which turns the same function into a sort key when you need one.</li>
+    </ul>
+
+    <h2>Bottom line</h2>
+
+    <ul>
+      <li><strong>All three are the same speed.</strong> 8.13 s / 8.33 s / 8.40 s over 10M rows — a 3% spread, inside the noise, with an ordering effect that probably explains most of it.</li>
+      <li><strong>The cost is the rows, not the comparison.</strong> Reading 10M rows and writing 384,630 dominates; the operator is a rounding error.</li>
+      <li><strong>Don't rewrite <code>=</code> for performance.</strong> There's nothing to win.</li>
+      <li><strong>Do reach for <code>Match()</code> by default in new code</strong> — it scales to more values, keeps them as data, and hands you a sort position.</li>
+      <li><strong><code>MixMatch()</code> only when you mean case-insensitive</strong>, not as a safety blanket.</li>
+    </ul>
+
+    <p>
+      The pleasant conclusion of a benchmark that shows no difference: you get to choose on
+      readability and flexibility, guilt-free. That's not the result I expected going in, but it's
+      the more useful one.
+    </p>
+
+  </div>
+
+  <div id="related-posts"></div>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <span class="footer-brand">by <strong>Qlikard</strong> — Rikard Larsson</span>
+    <div class="footer-links">
+      <a href="https://www.linkedin.com/in/kr-larsson/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://www.kolibrivision.se/" target="_blank" rel="noopener">Kolibri Vision</a>
+      <a href="../about.html">About</a>
+    </div>
+    <span class="footer-copy">© 2026</span>
+  </div>
+</footer>
+
+<script src="../js/posts-data.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>
